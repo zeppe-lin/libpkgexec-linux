@@ -6,6 +6,12 @@ consumers, SONAME and direct dependency inspection, generated pkg-config
 metadata, manual generation where available, patch hygiene, and independent
 mbox replay.
 
-Capability changes require a deliberate ABI and release review. Diagnostic
-feature probes must not silently alter the guarantees advertised by an existing
-backend identity.
+The isolated backend additionally requires both outcomes from its integration
+test: an explicit skip on a non-delegated runner and a real pass on a runner
+that can create and populate the private mount namespace. Never count a skip as
+isolation coverage.
+
+Capability changes require deliberate ABI and release review. Diagnostic probes
+must not silently alter guarantees advertised by an existing backend identity.
+A fallback implementation is acceptable only when it establishes the identical
+security contract.

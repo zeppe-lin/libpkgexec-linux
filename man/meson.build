@@ -5,6 +5,7 @@ if scdoc.found()
   pages = [
     ['libpkgexec-linux.3.scd', 'libpkgexec-linux.3', 'man3'],
     ['pkgexec_linux_backend.3.scd', 'pkgexec_linux_backend.3', 'man3'],
+    ['pkgexec_linux_isolated.3.scd', 'pkgexec_linux_isolated.3', 'man3'],
     ['pkgexec_linux_capability.3.scd', 'pkgexec_linux_capability.3', 'man3'],
   ]
   foreach page : pages
