@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Alexandr Savca
+# SPDX-License-Identifier: GPL-3.0-or-later
+option(
+  'link_mode',
+  type: 'combo',
+  choices: ['shared', 'static'],
+  value: 'shared',
+  description: 'Select the dependency linkage mode',
+)
+option(
+  'tests',
+  type: 'feature',
+  value: 'enabled',
+  description: 'Build backend and contract tests',
+)
+option(
+  'man_pages',
+  type: 'feature',
+  value: 'auto',
+  description: 'Build scdoc manual pages',
+)
