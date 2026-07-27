@@ -5,6 +5,7 @@ if get_option('tests').enabled()
     'capability',
     'interpreter',
     'backend',
+    'isolated',
   ]
     test_binary = executable(
       test_name + '-test',

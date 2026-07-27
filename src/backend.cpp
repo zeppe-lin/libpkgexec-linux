@@ -4,6 +4,7 @@
 
 #include <libpkgexec-linux/error.h>
 
+#include "mount_isolation.h"
 #include "process_control.h"
 #include "support.h"
 
@@ -149,7 +150,7 @@ const interpreter_binding* find_interpreter(
                                                                 : nullptr;
 }
 
-std::string validate_request_shape(
+std::string validate_host_request_shape(
     const pkgexec::execution_request& request,
     const pkgexec::execution_resources& resources)
 {
@@ -204,10 +205,35 @@ std::string validate_request_shape(
   return {};
 }
 
+std::string validate_isolated_request_shape(
+    const pkgexec::execution_request& request)
+{
+  if (request.environment().network() != pkgexec::network_policy::allowed) {
+    return "isolated filesystem backend does not isolate networking";
+  }
+  if (!request.limits().empty()) {
+    return "isolated filesystem backend does not classify resource limits";
+  }
+  if (request.cancellation().mode() != pkgexec::cancellation_mode::disabled) {
+    return "isolated filesystem backend has no call-scoped cancellation handle";
+  }
+  if (!request.credentials().no_new_privileges()) {
+    return "isolated filesystem backend requires no-new-privileges containment";
+  }
+  if (request.credentials().user_id() != static_cast<std::uint64_t>(::getuid()) ||
+      request.credentials().group_id() != static_cast<std::uint64_t>(::getgid()) ||
+      request.credentials().supplementary_groups() != detail::current_groups()) {
+    return "isolated filesystem backend admits only its current credentials";
+  }
+  return {};
+}
+
 enum class child_stage : std::uint32_t {
   process_group,
   standard_streams,
+  mount_isolation,
   working_directory,
+  capability_drop,
   containment,
   execute,
 };
@@ -215,11 +241,13 @@ enum class child_stage : std::uint32_t {
 struct child_error final {
   child_stage stage;
   std::int32_t value;
+  std::uint32_t detail;
 };
 
-void report_child_error(int fd, child_stage stage, int value) noexcept
+void report_child_error(int fd, child_stage stage, int value,
+                        std::uint32_t detail = 0) noexcept
 {
-  const child_error failure{stage, value};
+  const child_error failure{stage, value, detail};
   const auto* bytes = reinterpret_cast<const unsigned char*>(&failure);
   std::size_t offset = 0;
   while (offset < sizeof(failure)) {
@@ -241,6 +269,7 @@ struct child_configuration final {
   pkgexec::stream_policy standard_error;
   std::uint32_t file_creation_mask;
   const char* working_directory;
+  const detail::isolated_admission* isolation;
   int interpreter_fd;
   char* const* arguments;
   char* const* environment;
@@ -294,9 +323,23 @@ struct child_configuration final {
     _exit(125);
   }
 
+  if (configuration.isolation) {
+    detail::mount_setup_failure failure{};
+    if (!detail::setup_isolated_filesystem(*configuration.isolation, failure)) {
+      report_child_error(control_fd, child_stage::mount_isolation,
+                         failure.error,
+                         static_cast<std::uint32_t>(failure.stage));
+      _exit(125);
+    }
+  }
+
   ::umask(static_cast<mode_t>(configuration.file_creation_mask));
   if (::chdir(configuration.working_directory) != 0) {
     report_child_error(control_fd, child_stage::working_directory, errno);
+    _exit(125);
+  }
+  if (configuration.isolation && !detail::drop_process_capabilities()) {
+    report_child_error(control_fd, child_stage::capability_drop, errno);
     _exit(125);
   }
   if (!detail::install_process_group_containment()) {
@@ -367,6 +410,8 @@ pkgexec::execution_failure_kind child_failure_kind(const child_error& failure)
   switch (failure.stage) {
     case child_stage::working_directory:
       return pkgexec::execution_failure_kind::resource_admission_failed;
+    case child_stage::mount_isolation:
+    case child_stage::capability_drop:
     case child_stage::containment:
     case child_stage::process_group:
       return pkgexec::execution_failure_kind::isolation_setup_failed;
@@ -386,7 +431,12 @@ std::string child_failure_diagnostic(const child_error& failure)
   switch (failure.stage) {
     case child_stage::process_group: operation = "setpgid"; break;
     case child_stage::standard_streams: operation = "standard stream setup"; break;
+    case child_stage::mount_isolation:
+      operation = detail::mount_stage_name(
+          static_cast<detail::mount_setup_stage>(failure.detail)).data();
+      break;
     case child_stage::working_directory: operation = "chdir"; break;
+    case child_stage::capability_drop: operation = "capability drop"; break;
     case child_stage::containment: operation = "seccomp containment"; break;
     case child_stage::execute: operation = "execve"; break;
   }
@@ -437,23 +487,32 @@ const capability_report& host_supervisor_backend::report() const noexcept
 pkgexec::backend_capability_profile host_supervisor_backend::capabilities() const
 { return report_.profile(); }
 
-pkgexec::execution_result host_supervisor_backend::execute(
+pkgexec::execution_result execute_backend(
+    const capability_report& report,
+    const std::vector<interpreter_binding>& interpreters,
     const pkgexec::execution_request& request,
-    const pkgexec::execution_resources& resources)
+    const pkgexec::execution_resources& resources,
+    bool isolated)
 {
-  const auto profile = capabilities();
+  const auto profile = report.profile();
   if (!profile.supports(request)) {
     return pkgexec::execution_result::failed_before_start(
         request, profile, pkgexec::execution_failure_kind::backend_unsupported,
         {}, "Linux host supervisor cannot establish all requested guarantees");
   }
 
+  std::optional<detail::isolated_admission> isolation;
   try {
-    const auto shape_error = validate_request_shape(request, resources);
+    const auto shape_error = isolated
+        ? validate_isolated_request_shape(request)
+        : validate_host_request_shape(request, resources);
     if (!shape_error.empty()) {
       return pkgexec::execution_result::failed_before_start(
           request, profile, pkgexec::execution_failure_kind::request_rejected,
           {}, shape_error);
+    }
+    if (isolated) {
+      isolation.emplace(detail::admit_isolated_resources(request, resources));
     }
   } catch (const std::exception& value) {
     return pkgexec::execution_result::failed_before_start(
@@ -462,7 +521,7 @@ pkgexec::execution_result host_supervisor_backend::execute(
         {}, value.what());
   }
 
-  const auto* configured = find_interpreter(interpreters_, request.interpreter());
+  const auto* configured = find_interpreter(interpreters, request.interpreter());
   if (!configured) {
     return pkgexec::execution_result::failed_before_start(
         request, profile,
@@ -521,8 +580,9 @@ pkgexec::execution_result host_supervisor_backend::execute(
   auto environment_pointers = pointers(environment);
   const auto& working_binding = request.resources().binding(
       request.resources().working_directory());
-  const std::string working_directory =
-      resources.materialization(working_binding.resource()).host_path().string();
+  const std::string working_directory = isolated
+      ? working_binding.mount_point().string()
+      : resources.materialization(working_binding.resource()).host_path().string();
   std::string option = "-c";
   std::string material = request.program().material();
   std::string argument_zero = "pkgexec";
@@ -535,7 +595,8 @@ pkgexec::execution_result host_supervisor_backend::execute(
       request.environment().standard_output(),
       request.environment().standard_error(),
       request.environment().file_creation_mask(),
-      working_directory.c_str(), interpreter_fd.get(),
+      working_directory.c_str(), isolation ? &*isolation : nullptr,
+      interpreter_fd.get(),
       arguments.data(), environment_pointers.data(),
   };
 
@@ -615,14 +676,20 @@ pkgexec::execution_result host_supervisor_backend::execute(
     child_reaped = true;
     group_cleaned = cleanup_group(child);
   }
+  const bool mount_cleaned = !isolation || isolation->verify_parent_cleanup();
+  const bool cleanup_verified = group_cleaned && mount_cleaned;
 
   if (control_size != 0U) {
     child_error failure{};
     if (control_size == sizeof(failure)) {
       std::memcpy(&failure, control_bytes.data(), sizeof(failure));
+      std::string diagnostic = child_failure_diagnostic(failure);
+      if (!mount_cleaned) {
+        diagnostic += "; parent isolation scratch cleanup failed";
+      }
       return pkgexec::execution_result::failed_before_start(
           request, profile, child_failure_kind(failure), {},
-          child_failure_diagnostic(failure));
+          std::move(diagnostic));
     }
     return pkgexec::execution_result::failed_before_start(
         request, profile, pkgexec::execution_failure_kind::process_start_failed,
@@ -647,7 +714,7 @@ pkgexec::execution_result host_supervisor_backend::execute(
     established = without_guarantee(
         established, pkgexec::execution_guarantee::complete_stderr_capture);
   }
-  if (!group_cleaned) {
+  if (!cleanup_verified) {
     established = without_guarantee(
         established, pkgexec::execution_guarantee::cleanup_verified);
   }
@@ -664,12 +731,12 @@ pkgexec::execution_result host_supervisor_backend::execute(
                       : 1U),
         std::move(output_capture), std::move(error_capture),
         std::move(established),
-        group_cleaned ? pkgexec::cleanup_outcome::verified
-                      : pkgexec::cleanup_outcome::failed,
+        cleanup_verified ? pkgexec::cleanup_outcome::verified
+                         : pkgexec::cleanup_outcome::failed,
         pkgexec::execution_failure_kind::log_capture_failed,
         "complete stream capture failed");
   }
-  if (!group_cleaned) {
+  if (!cleanup_verified) {
     return pkgexec::execution_result::failed_after_start(
         request, profile, configured->identity(),
         WIFSIGNALED(status)
@@ -682,7 +749,7 @@ pkgexec::execution_result host_supervisor_backend::execute(
         std::move(output_capture), std::move(error_capture),
         std::move(established), pkgexec::cleanup_outcome::failed,
         pkgexec::execution_failure_kind::cleanup_failed,
-        "process-group cleanup could not be verified");
+        "process-group or mount cleanup could not be verified");
   }
   if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
     return pkgexec::execution_result::succeeded(
@@ -714,6 +781,50 @@ pkgexec::execution_result host_supervisor_backend::execute(
       pkgexec::cleanup_outcome::verified,
       pkgexec::execution_failure_kind::program_exited_nonzero,
       "unrecognized wait status");
+}
+
+pkgexec::execution_result host_supervisor_backend::execute(
+    const pkgexec::execution_request& request,
+    const pkgexec::execution_resources& resources)
+{
+  return execute_backend(report_, interpreters_, request, resources, false);
+}
+
+isolated_backend::isolated_backend(
+    capability_report report, std::vector<interpreter_binding> interpreters)
+    : report_(std::move(report)), interpreters_(std::move(interpreters))
+{
+}
+
+isolated_backend isolated_backend::make(
+    std::vector<interpreter_binding> interpreters)
+{
+  if (interpreters.empty()) {
+    throw error(error_code::invalid_value,
+                "at least one exact interpreter binding is required");
+  }
+  std::sort(interpreters.begin(), interpreters.end());
+  for (std::size_t i = 1; i < interpreters.size(); ++i) {
+    if (interpreters[i - 1].identity() == interpreters[i].identity()) {
+      throw error(error_code::duplicate_interpreter,
+                  "duplicate interpreter identity");
+    }
+  }
+  return isolated_backend(capability_report::probe_isolated(),
+                          std::move(interpreters));
+}
+
+const capability_report& isolated_backend::report() const noexcept
+{ return report_; }
+
+pkgexec::backend_capability_profile isolated_backend::capabilities() const
+{ return report_.profile(); }
+
+pkgexec::execution_result isolated_backend::execute(
+    const pkgexec::execution_request& request,
+    const pkgexec::execution_resources& resources)
+{
+  return execute_backend(report_, interpreters_, request, resources, true);
 }
 
 } // namespace pkgexec_linux
