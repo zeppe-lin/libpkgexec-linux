@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: 2026 Alexandr Savca
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+        linkage: [shared, static]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: zeppe-lin/libpkgsource
+          ref: 9bf2d1adf56050ed73bd4fdac8406b802daec9d5
+          path: subprojects/libpkgsource
+      - uses: actions/checkout@v4
+        with:
+          repository: zeppe-lin/libpkgexec
+          ref: fb3dcadd20d484820c8be458cfe15e329109c794
+          path: subprojects/libpkgexec
+      - run: sudo apt-get update && sudo apt-get install -y meson ninja-build scdoc libssl-dev
+      - run: |
+          if [ "${{ matrix.compiler }}" = clang ]; then
+            echo 'CC=clang' >> "$GITHUB_ENV"
+            echo 'CXX=clang++' >> "$GITHUB_ENV"
+          fi
+      - run: |
+          meson setup build \
+            -Ddefault_library=${{ matrix.linkage }} \
+            -Dlink_mode=${{ matrix.linkage }} \
+            -Dman_pages=enabled
+          meson compile -C build
+          meson test -C build --print-errorlogs
