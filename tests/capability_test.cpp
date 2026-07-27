@@ -39,6 +39,25 @@ int test()
                   first.profile().guarantees().end(),
                   pkgexec::execution_guarantee::read_only_resources) ==
         first.profile().guarantees().end());
+  const auto isolated_first = capability_report::probe_isolated();
+  const auto isolated_second = capability_report::probe_isolated();
+  CHECK(isolated_first.profile().identity() ==
+        isolated_second.profile().identity());
+  CHECK(isolated_first.state(capability_kind::openat2) ==
+        capability_state::available);
+  CHECK(to_string(capability_kind::open_tree) == "open-tree");
+  CHECK(to_string(capability_kind::move_mount) == "move-mount");
+  CHECK(std::find(isolated_first.profile().guarantees().begin(),
+                  isolated_first.profile().guarantees().end(),
+                  pkgexec::execution_guarantee::network_denied) ==
+        isolated_first.profile().guarantees().end());
+  if (isolated_first.state(capability_kind::mount_namespace) ==
+      capability_state::available) {
+    CHECK(std::find(isolated_first.profile().guarantees().begin(),
+                    isolated_first.profile().guarantees().end(),
+                    pkgexec::execution_guarantee::read_only_resources) !=
+          isolated_first.profile().guarantees().end());
+  }
   CHECK(to_string(capability_kind::landlock) == "landlock");
   CHECK(to_string(capability_state::policy_restricted) == "policy-restricted");
   return 0;

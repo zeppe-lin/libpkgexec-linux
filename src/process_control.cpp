@@ -9,8 +9,10 @@
 
 #include <fcntl.h>
 #include <linux/audit.h>
+#include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
+#include <sched.h>
 #include <signal.h>
 #include <stddef.h>
 #include <sys/prctl.h>
@@ -18,6 +20,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#ifndef CLONE_NEWTIME
+#define CLONE_NEWTIME 0x00000080
+#endif
 
 namespace pkgexec_linux::detail {
 namespace {
@@ -46,6 +52,20 @@ bool install_process_group_containment() noexcept
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
       BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
                static_cast<unsigned int>(offsetof(seccomp_data, nr))),
+#ifdef __NR_clone
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 3),
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+               static_cast<unsigned int>(offsetof(seccomp_data, args[0]))),
+      BPF_JUMP(
+          BPF_JMP | BPF_JSET | BPF_K,
+          static_cast<unsigned int>(
+              CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWNET | CLONE_NEWNS |
+              CLONE_NEWPID | CLONE_NEWTIME | CLONE_NEWUSER | CLONE_NEWUTS),
+          0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+               static_cast<unsigned int>(offsetof(seccomp_data, nr))),
+#endif
 #ifdef __NR_setsid
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_setsid, 0, 1),
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
@@ -60,6 +80,38 @@ bool install_process_group_containment() noexcept
 #endif
 #ifdef __NR_setns
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_setns, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+#ifdef __NR_clone3
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone3, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | ENOSYS),
+#endif
+#ifdef __NR_mount
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mount, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+#ifdef __NR_umount2
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_umount2, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+#ifdef __NR_pivot_root
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_pivot_root, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+#ifdef __NR_chroot
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_chroot, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+#ifdef __NR_open_tree
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open_tree, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+#ifdef __NR_move_mount
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_move_mount, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+#endif
+#ifdef __NR_mount_setattr
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mount_setattr, 0, 1),
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
 #endif
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
@@ -123,6 +175,44 @@ bool probe_pidfd() noexcept
 #else
   return false;
 #endif
+}
+
+bool drop_process_capabilities() noexcept
+{
+#ifdef __NR_capset
+  __user_cap_header_struct header{};
+  header.version = _LINUX_CAPABILITY_VERSION_3;
+  header.pid = 0;
+  __user_cap_data_struct data[2]{};
+  if (::syscall(__NR_capset, &header, data) != 0) {
+    return false;
+  }
+#ifdef PR_CAP_AMBIENT
+  if (::prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0L, 0L, 0L) != 0 &&
+      errno != EINVAL) {
+    return false;
+  }
+#endif
+  return true;
+#else
+  errno = ENOSYS;
+  return false;
+#endif
+}
+
+bool probe_capability_drop() noexcept
+{
+  const pid_t child = ::fork();
+  if (child < 0) {
+    return false;
+  }
+  if (child == 0) {
+    _exit(drop_process_capabilities() ? 0 : 1);
+  }
+  int status = 0;
+  while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
+  }
+  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 void close_fds_except(int first, int second) noexcept

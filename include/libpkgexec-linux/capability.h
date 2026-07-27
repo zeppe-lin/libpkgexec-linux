@@ -27,6 +27,13 @@ enum class capability_kind {
   close_range,
   pidfd,
   mount_namespace,
+  private_mount_propagation,
+  openat2,
+  open_tree,
+  move_mount,
+  mount_setattr,
+  chroot,
+  capability_drop,
   user_namespace,
   pid_namespace,
   network_namespace,
@@ -61,6 +68,7 @@ private:
 class capability_report final {
 public:
   [[nodiscard]] static capability_report probe();
+  [[nodiscard]] static capability_report probe_isolated();
   [[nodiscard]] const pkgexec::backend_capability_profile& profile() const noexcept;
   [[nodiscard]] const std::vector<capability_observation>& observations() const noexcept;
   [[nodiscard]] capability_state state(capability_kind capability) const;

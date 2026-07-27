@@ -9,6 +9,8 @@ namespace pkgexec_linux::detail {
 [[nodiscard]] bool probe_descriptor_execution() noexcept;
 [[nodiscard]] bool probe_close_range() noexcept;
 [[nodiscard]] bool probe_pidfd() noexcept;
+[[nodiscard]] bool drop_process_capabilities() noexcept;
+[[nodiscard]] bool probe_capability_drop() noexcept;
 void close_fds_except(int first, int second) noexcept;
 
 } // namespace pkgexec_linux::detail

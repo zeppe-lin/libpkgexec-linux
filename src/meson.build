@@ -10,6 +10,7 @@ libpkgexec_linux = library(
     'capability.cpp',
     'error.cpp',
     'interpreter.cpp',
+    'mount_isolation.cpp',
     'process_control.cpp',
     'support.cpp',
   ],

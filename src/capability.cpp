@@ -4,6 +4,7 @@
 
 #include <libpkgexec-linux/error.h>
 
+#include "mount_isolation.h"
 #include "process_control.h"
 #include "support.h"
 
@@ -21,10 +22,10 @@
 namespace pkgexec_linux {
 namespace {
 
-pkgexec::backend_identity host_backend_identity()
+pkgexec::backend_identity backend_identity(std::string_view name)
 {
   return pkgexec::backend_identity::from_sha256(
-      detail::sha256_hex("pkgexec-linux/backend/v1", "host-supervisor"));
+      detail::sha256_hex("pkgexec-linux/backend/v1", name));
 }
 
 capability_state namespace_state(int flag) noexcept
@@ -94,6 +95,13 @@ std::string_view to_string(capability_kind value) noexcept
     case capability_kind::close_range: return "close-range";
     case capability_kind::pidfd: return "pidfd";
     case capability_kind::mount_namespace: return "mount-namespace";
+    case capability_kind::private_mount_propagation: return "private-mount-propagation";
+    case capability_kind::openat2: return "openat2";
+    case capability_kind::open_tree: return "open-tree";
+    case capability_kind::move_mount: return "move-mount";
+    case capability_kind::mount_setattr: return "mount-setattr";
+    case capability_kind::chroot: return "chroot";
+    case capability_kind::capability_drop: return "capability-drop";
     case capability_kind::user_namespace: return "user-namespace";
     case capability_kind::pid_namespace: return "pid-namespace";
     case capability_kind::network_namespace: return "network-namespace";
@@ -174,6 +182,22 @@ capability_report capability_report::probe()
        detail::probe_pidfd() ? capability_state::available
                              : capability_state::unavailable},
       {capability_kind::mount_namespace, namespace_state(CLONE_NEWNS)},
+      {capability_kind::private_mount_propagation, capability_state::unavailable,
+       "host supervisor creates no mount namespace"},
+      {capability_kind::openat2,
+       detail::probe_openat2() ? capability_state::available
+                               : capability_state::unavailable},
+      {capability_kind::open_tree, capability_state::unavailable,
+       "host supervisor creates no detached mount trees"},
+      {capability_kind::move_mount, capability_state::unavailable,
+       "host supervisor attaches no mount trees"},
+      {capability_kind::mount_setattr, capability_state::unavailable,
+       "host supervisor applies no mount attributes"},
+      {capability_kind::chroot, capability_state::unavailable,
+       "host supervisor enters no alternate root"},
+      {capability_kind::capability_drop,
+       detail::probe_capability_drop() ? capability_state::available
+                                       : capability_state::unavailable},
       {capability_kind::user_namespace, namespace_state(CLONE_NEWUSER)},
       {capability_kind::pid_namespace, namespace_state(CLONE_NEWPID)},
       {capability_kind::network_namespace, namespace_state(CLONE_NEWNET)},
@@ -181,8 +205,92 @@ capability_report capability_report::probe()
       {capability_kind::cgroup_v2, cgroup_state()},
   };
   return capability_report(
-      pkgexec::backend_capability_profile::seal(host_backend_identity(),
-                                                std::move(guarantees)),
+      pkgexec::backend_capability_profile::seal(
+          backend_identity("host-supervisor"), std::move(guarantees)),
+      std::move(observations));
+}
+
+capability_report capability_report::probe_isolated()
+{
+  const bool containment = detail::probe_process_group_containment();
+  const bool descriptor_execution = detail::probe_descriptor_execution();
+  const bool capability_drop = detail::probe_capability_drop();
+  int mount_error = 0;
+  const bool filesystem = detail::probe_isolated_filesystem(mount_error);
+  const auto mount_state = filesystem
+      ? capability_state::available
+      : (mount_error == EPERM || mount_error == EACCES
+             ? capability_state::policy_restricted
+             : capability_state::unavailable);
+
+  std::vector<pkgexec::execution_guarantee> guarantees{
+      pkgexec::execution_guarantee::closed_environment,
+      pkgexec::execution_guarantee::fixed_credentials,
+      pkgexec::execution_guarantee::complete_stdout_capture,
+      pkgexec::execution_guarantee::complete_stderr_capture,
+  };
+  if (descriptor_execution) {
+    guarantees.push_back(pkgexec::execution_guarantee::exact_interpreter);
+  }
+  if (filesystem && capability_drop) {
+    guarantees.push_back(pkgexec::execution_guarantee::root_view);
+    guarantees.push_back(pkgexec::execution_guarantee::read_only_resources);
+    guarantees.push_back(pkgexec::execution_guarantee::writable_resources);
+  }
+  if (containment && filesystem) {
+    guarantees.push_back(pkgexec::execution_guarantee::cleanup_verified);
+  }
+
+  const std::string mount_diagnostic = filesystem
+      ? "private descriptor-oriented root and resource mounts are available"
+      : detail::errno_message("isolated mount probe", mount_error);
+  std::vector<capability_observation> observations{
+      {capability_kind::process_supervision, capability_state::available},
+      {capability_kind::closed_environment, capability_state::available},
+      {capability_kind::current_root_view, filesystem ? capability_state::available
+                                                     : mount_state,
+       "the exact supplied root view is cloned read-only"},
+      {capability_kind::current_credentials, capability_state::available,
+       "only the supervisor's current numeric credentials are admitted"},
+      {capability_kind::writable_resources, filesystem ? capability_state::available
+                                                      : mount_state,
+       mount_diagnostic},
+      {capability_kind::complete_stream_capture, capability_state::available},
+      {capability_kind::process_group_containment,
+       containment ? capability_state::available : capability_state::unavailable},
+      {capability_kind::no_new_privileges,
+       containment ? capability_state::available : capability_state::unavailable},
+      {capability_kind::descriptor_execution,
+       descriptor_execution ? capability_state::available
+                            : capability_state::unavailable},
+      {capability_kind::close_range,
+       detail::probe_close_range() ? capability_state::available
+                                   : capability_state::unavailable},
+      {capability_kind::pidfd,
+       detail::probe_pidfd() ? capability_state::available
+                             : capability_state::unavailable},
+      {capability_kind::mount_namespace, mount_state, mount_diagnostic},
+      {capability_kind::private_mount_propagation, mount_state, mount_diagnostic},
+      {capability_kind::openat2,
+       detail::probe_openat2() ? capability_state::available
+                               : capability_state::unavailable},
+      {capability_kind::open_tree, mount_state, mount_diagnostic},
+      {capability_kind::move_mount, mount_state, mount_diagnostic},
+      {capability_kind::mount_setattr, mount_state, mount_diagnostic},
+      {capability_kind::chroot, mount_state, mount_diagnostic},
+      {capability_kind::capability_drop,
+       capability_drop ? capability_state::available
+                       : capability_state::unavailable},
+      {capability_kind::user_namespace, namespace_state(CLONE_NEWUSER),
+       "observed only; isolated backend does not create a user namespace"},
+      {capability_kind::pid_namespace, namespace_state(CLONE_NEWPID)},
+      {capability_kind::network_namespace, namespace_state(CLONE_NEWNET)},
+      {capability_kind::landlock, landlock_state()},
+      {capability_kind::cgroup_v2, cgroup_state()},
+  };
+  return capability_report(
+      pkgexec::backend_capability_profile::seal(
+          backend_identity("isolated-filesystem"), std::move(guarantees)),
       std::move(observations));
 }
 
