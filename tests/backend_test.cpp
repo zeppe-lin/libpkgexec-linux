@@ -202,8 +202,22 @@ int test()
       changed_request, fixture::resources(changed_request, temporary.path()));
   CHECK(changed.failure() == execution_failure_kind::interpreter_unavailable);
 
-  const auto false_program = interpreter_binding::inspect("/usr/bin/false");
-  auto missing_backend = host_supervisor_backend::make({false_program});
+  const auto alternate_interpreter_path =
+      temporary.path() / "alternate-interpreter";
+  {
+    std::ofstream alternate(alternate_interpreter_path,
+                            std::ios::binary | std::ios::trunc);
+    alternate << "#!" << shell.executable().string() << "\nexit 0\n";
+  }
+  std::filesystem::permissions(
+      alternate_interpreter_path,
+      std::filesystem::perms::owner_read |
+          std::filesystem::perms::owner_write |
+          std::filesystem::perms::owner_exec);
+  const auto alternate_interpreter =
+      interpreter_binding::inspect(alternate_interpreter_path);
+  auto missing_backend =
+      host_supervisor_backend::make({alternate_interpreter});
   auto missing = missing_backend.execute(
       success_request, fixture::resources(success_request, temporary.path()));
   CHECK(missing.failure() == execution_failure_kind::interpreter_unavailable);
