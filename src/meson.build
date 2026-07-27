@@ -41,7 +41,7 @@ pkgconf.generate(
   libpkgexec_linux,
   name: 'libpkgexec-linux',
   filebase: 'libpkgexec-linux',
-  description: 'Restricted Linux host-supervisor backend for libpkgexec',
+  description: 'Linux execution backends for libpkgexec',
   subdirs: '.',
   requires: ['libpkgexec >= 1.0.0'],
   requires_private: ['libcrypto'],
