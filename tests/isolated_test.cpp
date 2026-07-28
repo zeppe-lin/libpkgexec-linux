@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <arpa/inet.h>
@@ -25,6 +27,7 @@
 namespace {
 
 std::filesystem::path network_probe;
+std::filesystem::path cancellation_probe;
 
 class parent_listener final {
 public:
@@ -89,7 +92,8 @@ private:
 class temporary_tree final {
 public:
   temporary_tree(const pkgexec_linux::interpreter_binding& interpreter,
-                 const std::filesystem::path& probe)
+                 const std::filesystem::path& network,
+                 const std::filesystem::path& cancellation)
   {
     std::array<char, 64> pattern{};
     const char* value = "/tmp/pkgexec-isolated.XXXXXX";
@@ -109,7 +113,9 @@ public:
       std::filesystem::create_directories(directory);
     }
     runtime_fixture::copy_runtime(root_, interpreter.executable());
-    runtime_fixture::copy_runtime(root_, probe, "/bin/network-probe");
+    runtime_fixture::copy_runtime(root_, network, "/bin/network-probe");
+    runtime_fixture::copy_runtime(root_, cancellation,
+                                  "/bin/cancellation-probe");
     std::ofstream(source_ / "input") << "source\n";
   }
   ~temporary_tree()
@@ -170,7 +176,9 @@ std::vector<std::uint64_t> groups()
 pkgexec::execution_request request(
     const pkgexec_linux::interpreter_binding& shell,
     pkgexec::network_policy network = pkgexec::network_policy::allowed,
-    std::optional<std::string> program = std::nullopt)
+    std::optional<std::string> program = std::nullopt,
+    pkgexec::cancellation_policy cancellation =
+        pkgexec::cancellation_policy::disabled())
 {
   using namespace pkgexec;
   const auto source_slot =
@@ -208,7 +216,7 @@ pkgexec::execution_request request(
       credential_policy::fixed(static_cast<std::uint64_t>(::getuid()),
                                static_cast<std::uint64_t>(::getgid()),
                                groups(), true),
-      resource_limits::make(), cancellation_policy::disabled());
+      resource_limits::make(), std::move(cancellation));
 }
 
 pkgexec::execution_resources resources(
@@ -259,7 +267,7 @@ bool has_guarantee(const pkgexec::execution_result& result,
 int test()
 {
   const auto shell = pkgexec_linux::interpreter_binding::inspect("/bin/sh");
-  temporary_tree tree(shell, network_probe);
+  temporary_tree tree(shell, network_probe, cancellation_probe);
   auto backend = pkgexec_linux::isolated_backend::make({shell});
   auto execution_request = request(shell);
   auto execution_resources = resources(execution_request, tree);
@@ -369,6 +377,52 @@ int test()
   CHECK(has_guarantee(loopback,
                       pkgexec::execution_guarantee::loopback_isolated));
   CHECK(!loopback_listener.received(100));
+
+  const auto cancellation_marker = tree.workspace() / "cancel.ready";
+  auto cancellation_request = request(
+      shell, pkgexec::network_policy::denied,
+      "/bin/cancellation-probe graceful /workspace/cancel.ready",
+      pkgexec::cancellation_policy::graceful_then_forced(500));
+  auto cancellation = pkgexec::cancellation_source::for_request(
+      cancellation_request);
+  const auto cancellation_token = cancellation.token();
+  if (!backend.capabilities().supports(cancellation_request)) {
+    auto unsupported = backend.execute(
+        cancellation_request, resources(cancellation_request, tree),
+        cancellation_token);
+    CHECK(unsupported.start_state() ==
+          pkgexec::execution_start_state::not_started);
+    CHECK(unsupported.failure() ==
+          pkgexec::execution_failure_kind::backend_unsupported);
+    return 77;
+  }
+  std::optional<pkgexec::execution_result> cancelled;
+  std::thread cancellation_worker([&] {
+    cancelled.emplace(backend.execute(
+        cancellation_request, resources(cancellation_request, tree),
+        cancellation_token));
+  });
+  const auto cancellation_deadline = std::chrono::steady_clock::now() +
+                                     std::chrono::seconds(3);
+  while (!std::filesystem::exists(cancellation_marker) &&
+         std::chrono::steady_clock::now() < cancellation_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  const bool cancellation_ready =
+      std::filesystem::exists(cancellation_marker);
+  const bool cancellation_requested = cancellation.request_cancellation();
+  cancellation_worker.join();
+  CHECK(cancellation_ready);
+  CHECK(cancellation_requested);
+  CHECK(cancelled.has_value());
+  CHECK(cancelled->failure() ==
+        pkgexec::execution_failure_kind::cancelled);
+  CHECK(cancelled->start_state() == pkgexec::execution_start_state::started);
+  CHECK(cancelled->termination()->kind() ==
+        pkgexec::process_termination_kind::cancelled);
+  CHECK(cancelled->cleanup() == pkgexec::cleanup_outcome::verified);
+  CHECK(has_guarantee(*cancelled,
+                      pkgexec::execution_guarantee::cancellation));
   return 0;
 }
 
@@ -376,9 +430,10 @@ int test()
 
 int main(int argc, char** argv)
 {
-  if (argc != 2) {
+  if (argc != 3) {
     return 2;
   }
   network_probe = argv[1];
+  cancellation_probe = argv[2];
   return run_test(test);
 }

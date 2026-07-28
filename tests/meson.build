@@ -21,6 +21,21 @@ if get_option('tests').enabled()
     'network_probe.cpp',
     install: false,
   )
+  cancellation_probe = executable(
+    'cancellation-probe',
+    'cancellation_probe.cpp',
+    install: false,
+  )
+  cancellation_test = executable(
+    'cancellation-test',
+    'cancellation_test.cpp',
+    include_directories: include_directories('.'),
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test('cancellation', cancellation_test,
+       args: [cancellation_probe.full_path()])
+
   isolated_test = executable(
     'isolated-test',
     'isolated_test.cpp',
@@ -28,7 +43,8 @@ if get_option('tests').enabled()
     dependencies: libpkgexec_linux_dep,
     install: false,
   )
-  test('isolated', isolated_test, args: [network_probe.full_path()])
+  test('isolated', isolated_test,
+       args: [network_probe.full_path(), cancellation_probe.full_path()])
 
   foreach header : [
     'libpkgexec-linux/libpkgexec-linux.h',

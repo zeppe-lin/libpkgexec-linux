@@ -28,6 +28,8 @@ int test()
         capability_state::available);
   CHECK(to_string(capability_kind::descriptor_execution) ==
         "descriptor-execution");
+  CHECK(to_string(capability_kind::pidfd_cancellation) ==
+        "pidfd-cancellation");
   CHECK(first.state(capability_kind::loopback_configuration) ==
         capability_state::unavailable);
   CHECK(!first.observations().empty());
@@ -41,6 +43,16 @@ int test()
                   first.profile().guarantees().end(),
                   pkgexec::execution_guarantee::read_only_resources) ==
         first.profile().guarantees().end());
+
+  const bool host_cancellation_advertised =
+      std::find(first.profile().guarantees().begin(),
+                first.profile().guarantees().end(),
+                pkgexec::execution_guarantee::cancellation) !=
+      first.profile().guarantees().end();
+  CHECK(host_cancellation_advertised ==
+        (first.state(capability_kind::pidfd_cancellation) ==
+         capability_state::available));
+
   const auto isolated_first = capability_report::probe_isolated();
   const auto isolated_second = capability_report::probe_isolated();
   CHECK(isolated_first.profile().identity() ==
@@ -79,6 +91,15 @@ int test()
                     pkgexec::execution_guarantee::read_only_resources) !=
           isolated_first.profile().guarantees().end());
   }
+
+  const bool isolated_cancellation_advertised =
+      std::find(isolated_first.profile().guarantees().begin(),
+                isolated_first.profile().guarantees().end(),
+                pkgexec::execution_guarantee::cancellation) !=
+      isolated_first.profile().guarantees().end();
+  CHECK(isolated_cancellation_advertised ==
+        (isolated_first.state(capability_kind::pidfd_cancellation) ==
+         capability_state::available));
   CHECK(to_string(capability_kind::loopback_configuration) ==
         "loopback-configuration");
   CHECK(to_string(capability_kind::landlock) == "landlock");
