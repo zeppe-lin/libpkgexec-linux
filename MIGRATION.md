@@ -1,5 +1,25 @@
 # Migration
 
+`libpkgexec-linux 0.5.0` raises the `libpkgexec` floor to 1.2.0. SONAME remains
+`libpkgexec-linux.so.1`; existing 0.4 consumers remain ABI-compatible.
+
+Both backends now admit exact address-space, file-size, and open-files limits
+when the corresponding capability observation is available. The request must
+carry the aggregate `resource_limits` guarantee plus the exact kind guarantees
+derived by `libpkgexec 1.2`.
+
+Requested values become both the soft and hard Linux limit before the final
+start gate. Values equal to `RLIM_INFINITY`, not representable by `rlim_t`, or
+above the inherited hard ceiling fail before start as `resource_admission_failed`.
+The contained process may read its limits but attempts to mutate them through
+`setrlimit(2)` or `prlimit64(2)` are denied.
+
+CPU-time and process-count requests remain `backend_unsupported`. The backend
+does not round milliseconds to `RLIMIT_CPU` and does not treat per-UID
+`RLIMIT_NPROC` as an execution-tree limit. A program killed by `SIGXFSZ` is
+reported as signal termination; the signal number alone is not admitted as
+proof of resource-limit causality.
+
 `libpkgexec-linux 0.4.0` raises the `libpkgexec` floor to 1.1.0 and changes both
 backend classes to the additive `controlled_execution_backend` interface. The
 old directly callable backend `execute()` symbols are not retained. SONAME

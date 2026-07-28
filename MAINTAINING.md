@@ -23,3 +23,12 @@ Capability changes require deliberate ABI and release review. Diagnostic probes
 must not silently alter guarantees advertised by an existing backend identity.
 A fallback implementation is acceptable only when it establishes the identical
 security contract.
+
+
+Resource-limit changes require proof of the exact requested soft and hard
+values, denial of later mutation, and execution under both host and isolated
+backends. Do not infer `resource_limit_exceeded` from an exit code, allocation
+failure, `EMFILE`, or signal number alone. CPU milliseconds must not be rounded
+to `RLIMIT_CPU`, and process count must not be mapped to per-UID
+`RLIMIT_NPROC`. Any new limit mechanism must state its accounting scope and
+request-specific admission ceiling.

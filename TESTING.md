@@ -17,15 +17,20 @@ The test suite covers:
 - allowed, denied, and loopback-only networking;
 - capability dropping before execution;
 - complete concurrent stdout and stderr capture;
+- exact `RLIMIT_AS`, `RLIMIT_FSIZE`, and `RLIMIT_NOFILE` soft/hard values;
+- inability to raise or replace admitted limits after containment;
+- `ENOMEM`, `EMFILE`, and `SIGXFSZ` enforcement behavior;
+- conservative signal classification without invented limit causality;
+- refusal of CPU-time and process-count limits;
 - nonzero and signal termination classification;
 - inherited descriptor closure;
 - private-session descendant cleanup and scratch cleanup;
 - request-bound cancellation before the final start gate;
 - graceful cancellation after confirmed program start;
 - forced cancellation of a descendant-bearing execution group;
-- composition of denied networking and cancellation in isolated execution;
-- explicit refusal of unsupported credentials, limits, Landlock, and cgroup
-  guarantees;
+- composition of isolated root, exact limits, networking, and cancellation;
+- explicit refusal of unsupported credentials, CPU-time, process-count,
+  Landlock, and cgroup guarantees;
 - public-header and generated metadata contracts.
 
 The host cancellation test exits 77 when the end-to-end pidfd cancellation
@@ -40,8 +45,11 @@ pass before the composed isolated guarantees are release-qualified.
 
 Network views are proved through a compiled fixture inside the supplied root.
 Cancellation is proved through compiled graceful and SIGTERM-resistant
-fixtures. The tests do not delegate policy realization to `ip(8)`, shell socket
-extensions, or root-supplied process utilities.
+fixtures. Resource limits are proved through a compiled fixture that rereads
+exact soft/hard pairs, attempts forbidden mutation, exhausts descriptors,
+allocates beyond `RLIMIT_AS`, and writes beyond `RLIMIT_FSIZE`. The tests do not
+delegate policy realization to `ulimit`, `ip(8)`, shell socket extensions, or
+root-supplied process utilities.
 
 The backend does not create a user namespace merely to make CI pass. Tests may
 run under externally delegated user, mount, and network authority, but must

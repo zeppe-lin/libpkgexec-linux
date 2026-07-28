@@ -36,9 +36,11 @@ gate prevents program execution. Started cancellation preserves complete stream
 capture and requires both process-tree and scratch cleanup verification.
 
 The supplied root must contain all runtime material. Nested mounts and host
-pseudo-filesystems are not inherited. The backend creates no user or PID
-namespace and provides no Landlock, cgroup, credential, or resource-limit
-guarantee.
+pseudo-filesystems are not inherited. Exact address-space, file-size, and
+open-files limits compose with the private filesystem and network views and are
+sealed before the final start gate. The backend creates no user or PID namespace
+and provides no Landlock, cgroup, arbitrary credential, CPU-time, or
+execution-wide process-count guarantee.
 
 If filesystem, network, or cancellation realization is unavailable or
 policy-restricted, the request is rejected before start. There is no fallback
@@ -47,4 +49,5 @@ to a weaker execution policy.
 # SEE ALSO
 
 *libpkgexec-linux*(3), *pkgexec_linux_backend*(3),
-*pkgexec_linux_capability*(3), *pkgexec_backend*(3)
+*pkgexec_linux_capability*(3), *pkgexec_linux_limits*(3),
+*pkgexec_backend*(3)

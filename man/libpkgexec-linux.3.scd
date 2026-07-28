@@ -32,11 +32,13 @@ the exact request-bound token. Where the end-to-end pidfd probe succeeds, the
 backend creates a private execution session, sends signals through pidfds,
 honors the sealed grace period, and verifies descendant cleanup.
 
-Both backends currently require current credentials and empty resource limits.
-They provide no user or PID namespace, Landlock, cgroup, or resource-limit
-guarantee.
+Both backends require current credentials. Where the realization probes
+succeed, they admit exact address-space, file-size, and open-files limits and
+seal them against later mutation. They provide no user or PID namespace,
+Landlock, cgroup, CPU-time, or execution-wide process-count guarantee.
 
 # SEE ALSO
 
 *pkgexec_linux_backend*(3), *pkgexec_linux_isolated*(3),
-*pkgexec_linux_capability*(3), *libpkgexec*(3), *pkgexec_semantics*(7)
+*pkgexec_linux_capability*(3), *pkgexec_linux_limits*(3),
+*libpkgexec*(3), *pkgexec_semantics*(7)

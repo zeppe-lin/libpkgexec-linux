@@ -27,10 +27,14 @@ period, and escalates to *SIGKILL*. The leader remains unreaped while descendant
 cleanup is verified. No ambient signal handler or numeric-PID cancellation
 fallback is used.
 
-This backend creates no alternate filesystem or network view. See
-*pkgexec_linux_isolated*(3) for private mount-view execution.
+This backend creates no alternate filesystem or network view. It may realize
+exact address-space, file-size, and open-files limits before the final start
+gate and seals them against later mutation. See *pkgexec_linux_limits*(3) for
+the limit contract and *pkgexec_linux_isolated*(3) for private mount-view
+execution.
 
 # SEE ALSO
 
 *libpkgexec-linux*(3), *pkgexec_linux_isolated*(3),
-*pkgexec_linux_capability*(3), *pkgexec_backend*(3)
+*pkgexec_linux_capability*(3), *pkgexec_linux_limits*(3),
+*pkgexec_backend*(3)

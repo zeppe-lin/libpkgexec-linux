@@ -12,8 +12,8 @@ pkgexec_linux_capability - Linux backend capability observations
 
 *capability_report::probe()* reports the host supervisor.
 *capability_report::probe_isolated()* performs end-to-end private-root,
-resource-mount, denied-network, loopback-only, and pidfd-cancellation
-realization probes before advertising their guarantees.
+resource-mount, denied-network, loopback-only, pidfd-cancellation, and exact
+resource-limit realization probes before advertising their guarantees.
 
 Observation states are *available*, *unavailable*, and *policy-restricted*.
 Namespace, loopback configuration, Landlock, cgroup, close-range, raw pidfd, and
@@ -25,6 +25,10 @@ cancellation probe creates a private execution session with a descendant,
 signals exact members through pidfds, observes the leader through
 *waitid(P_PIDFD)*, and verifies that descendants disappear before advertising
 the guarantee.
+
+A resource-limit probe installs one representative soft/hard pair, seals later
+mutation, proves that an attempted raise is denied, and rereads the unchanged
+value. A raw successful *setrlimit*(2) call is not sufficient.
 
 A raw successful namespace syscall is not sufficient for a network guarantee.
 The denied probe verifies a private link view with down loopback. The
@@ -38,4 +42,5 @@ does not enter execution identities.
 # SEE ALSO
 
 *libpkgexec-linux*(3), *pkgexec_linux_backend*(3),
-*pkgexec_linux_isolated*(3), *pkgexec_backend*(3)
+*pkgexec_linux_isolated*(3), *pkgexec_linux_limits*(3),
+*pkgexec_backend*(3)

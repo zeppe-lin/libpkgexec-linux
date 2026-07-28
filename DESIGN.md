@@ -20,8 +20,8 @@ filesystem application, or installed-state publication.
 
 `host_supervisor_backend` creates no mount or network namespace view. It accepts
 only the current `/` root, current credentials, allowed networking,
-caller-prepositioned writable resources, empty resource limits, and an exact
-inspected interpreter.
+caller-prepositioned writable resources, supported exact resource limits, and
+an exact inspected interpreter.
 
 `isolated_backend` adds descriptor-oriented filesystem and network isolation.
 It accepts only:
@@ -35,7 +35,7 @@ It accepts only:
 - writable workspace/output/temporary/managed-target resources;
 - the supervisor's current numeric credentials;
 - allowed, denied, or loopback-only networking;
-- empty resource limits;
+- exact address-space, file-size, and open-files limits when probed;
 - `no_new_privileges` and an exact inspected interpreter.
 
 Both backends accept disabled cancellation through the ordinary backend call.
@@ -126,6 +126,42 @@ The parent environment is never copied. The requested umask and working
 directory are installed before execution, and inherited descriptors are
 closed.
 
+
+## Resource-limit realization
+
+Both backends can realize `address_space_bytes`, `file_size_bytes`, and
+`open_files` through `RLIMIT_AS`, `RLIMIT_FSIZE`, and `RLIMIT_NOFILE`.
+Realization is exact: the requested finite value becomes both `rlim_cur` and
+`rlim_max`. The inherited hard ceiling is never raised. A value equal to
+`RLIM_INFINITY`, not representable by `rlim_t`, or above the inherited hard
+ceiling is rejected before the final program-start gate as resource admission
+failure.
+
+Limits are applied after filesystem, network, credential, and stream setup but
+before the final gate. Seccomp containment then denies mutating `setrlimit(2)`
+and `prlimit64(2)` calls while allowing read-only `prlimit64(2)` inspection.
+This keeps the exact values stable even when the supervisor itself is
+privileged. Descendants inherit both the limits and the mutation seal.
+
+The capability profile contains the aggregate `resource_limits` guarantee only
+with the exact kinds proved by end-to-end child probes. Each probe applies one
+representative soft/hard pair, installs mutation sealing, proves that raising
+it is denied, and rereads the unchanged value. A request-specific value can
+still fail admission when the caller's inherited hard ceiling is lower than the
+sealed request.
+
+`cpu_time_milliseconds` is not mapped to `RLIMIT_CPU`: Linux exposes whole
+seconds and rounding would alter the sealed contract. `process_count` is not
+mapped to `RLIMIT_NPROC`: that limit is per real UID, not per execution tree.
+Those guarantees remain absent pending an exact accounting authority, likely a
+delegated cgroup contract.
+
+A signal observed under an active limit is not, by itself, proof that the limit
+caused termination. In particular, `SIGXFSZ` remains ordinary signal
+termination evidence. The backend retains the established file-size guarantee
+but does not manufacture `resource_limit_exceeded` causality from the signal
+number alone.
+
 ## Supervision and cancellation
 
 Before containment, the child calls `setsid(2)`. The execution therefore owns a
@@ -164,7 +200,8 @@ execution uses pidfd observation and signaling throughout.
 
 `capability_report::probe()` reports the host supervisor.
 `capability_report::probe_isolated()` additionally performs end-to-end mount and
-network realization probes. Cancellation is advertised only after an
+network realization probes. Both reports perform exact address-space,
+file-size, and open-files realization probes. Cancellation is advertised only after an
 end-to-end probe creates a private execution session with a descendant, signals
 exact members through pidfds, observes the leader through `waitid(P_PIDFD)`, and
 verifies descendant disappearance.
@@ -174,6 +211,6 @@ A raw successful `pidfd_open(2)` is diagnostic only. Observations distinguish
 paths, external delegation, cancellation timing, and diagnostic strings do not
 enter backend capability-profile identities.
 
-This is not yet full package-build isolation. Version 0.4 still advertises no
-arbitrary credential isolation, PID namespace, Landlock, cgroup, or
-resource-limit guarantee.
+This is not yet full package-build isolation. Version 0.5 still advertises no
+arbitrary credential isolation, PID namespace, Landlock, cgroup, CPU-time, or
+execution-wide process-count guarantee.
