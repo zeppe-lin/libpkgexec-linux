@@ -39,6 +39,10 @@ if get_option('tests').enabled()
   resource_limit_probe = executable(
     'resource-limit-probe',
     'resource_limit_probe.cpp',
+    # RLIMIT_AS is the subject of this fixture. Sanitizer runtimes reserve
+    # implementation-defined virtual address ranges and would turn the
+    # payload into a test of the sanitizer rather than the backend contract.
+    override_options: ['b_sanitize=none'],
     install: false,
   )
   resource_limit_test = executable(

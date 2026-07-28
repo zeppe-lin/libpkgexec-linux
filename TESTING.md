@@ -47,9 +47,13 @@ Network views are proved through a compiled fixture inside the supplied root.
 Cancellation is proved through compiled graceful and SIGTERM-resistant
 fixtures. Resource limits are proved through a compiled fixture that rereads
 exact soft/hard pairs, attempts forbidden mutation, exhausts descriptors,
-allocates beyond `RLIMIT_AS`, and writes beyond `RLIMIT_FSIZE`. The tests do not
-delegate policy realization to `ulimit`, `ip(8)`, shell socket extensions, or
-root-supplied process utilities.
+allocates beyond `RLIMIT_AS`, and writes beyond `RLIMIT_FSIZE`. That payload is
+intentionally built without compiler sanitizers even when the backend and test
+harness are sanitized: address sanitizers reserve large virtual address ranges
+and would otherwise make the exact `RLIMIT_AS` case test sanitizer startup
+rather than backend realization. The tests do not delegate policy realization
+to `ulimit`, `ip(8)`, shell socket extensions, or root-supplied process
+utilities.
 
 The backend does not create a user namespace merely to make CI pass. Tests may
 run under externally delegated user, mount, and network authority, but must
