@@ -30,13 +30,19 @@ same private view and brings only loopback up. The backend invokes no network
 configuration program and inherits no host interface or route into either
 private view.
 
+The controlled execution overload composes the same isolated root and network
+view with request-bound pidfd cancellation. Cancellation before the final start
+gate prevents program execution. Started cancellation preserves complete stream
+capture and requires both process-tree and scratch cleanup verification.
+
 The supplied root must contain all runtime material. Nested mounts and host
 pseudo-filesystems are not inherited. The backend creates no user or PID
-namespace and provides no Landlock, cgroup, limit, or cancellation guarantee.
+namespace and provides no Landlock, cgroup, credential, or resource-limit
+guarantee.
 
-If filesystem or requested network realization is unavailable or
+If filesystem, network, or cancellation realization is unavailable or
 policy-restricted, the request is rejected before start. There is no fallback
-to allowed networking.
+to a weaker execution policy.
 
 # SEE ALSO
 

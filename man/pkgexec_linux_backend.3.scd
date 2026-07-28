@@ -11,13 +11,21 @@ pkgexec_linux_backend - Linux host-supervisor execution contract
 # DESCRIPTION
 
 *host_supervisor_backend::make()* accepts exact *interpreter_binding* values.
-*execute()* admits a request only when its guarantees and concrete resources
-satisfy the restricted host-view contract.
+The ordinary *execute()* overload admits only disabled cancellation. The
+controlled overload additionally requires the exact request-bound
+*cancellation_token*.
 
-The child runs in a private process group. A seccomp filter prevents session,
-process-group, namespace, and mount operations needed to escape cleanup. The
-parent drains requested streams, classifies termination, terminates remaining
-group members, and reports *cleanup_verified* only after the group disappears.
+The child enters a private session and process group before the final program
+start gate. A seccomp filter prevents descendants from changing session,
+process-group, namespace, or mount state. The parent drains requested streams,
+classifies termination, terminates remaining group members, and reports
+*cleanup_verified* only after the group disappears.
+
+Cancellation observed before release of the start gate prevents execution.
+After start, the backend sends *SIGTERM* through pidfds, waits the sealed grace
+period, and escalates to *SIGKILL*. The leader remains unreaped while descendant
+cleanup is verified. No ambient signal handler or numeric-PID cancellation
+fallback is used.
 
 This backend creates no alternate filesystem or network view. See
 *pkgexec_linux_isolated*(3) for private mount-view execution.

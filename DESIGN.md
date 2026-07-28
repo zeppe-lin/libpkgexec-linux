@@ -4,10 +4,10 @@
 
 `libpkgexec-linux` realizes `libpkgexec::execution_request` values and returns
 `libpkgexec::execution_result` evidence. It does not define another program,
-request, result, or package-operation model.
+request, result, cancellation, or package-operation model.
 
 ```
-execution_request + execution_resources
+execution_request + execution_resources [+ cancellation_token]
     -> Linux realization
     -> execution_result
 ```
@@ -18,13 +18,13 @@ filesystem application, or installed-state publication.
 
 ## Backends
 
-`host_supervisor_backend` retains the 0.1 contract. It creates no mount or
-namespace view and accepts only the current `/` root, current credentials,
-allowed networking, caller-prepositioned writable resources, empty resource
-limits, and disabled cancellation.
+`host_supervisor_backend` creates no mount or network namespace view. It accepts
+only the current `/` root, current credentials, allowed networking,
+caller-prepositioned writable resources, empty resource limits, and an exact
+inspected interpreter.
 
-`isolated_backend` adds descriptor-oriented filesystem isolation. It accepts
-only:
+`isolated_backend` adds descriptor-oriented filesystem and network isolation.
+It accepts only:
 
 - a dedicated root-view directory other than `/`;
 - directory-valued resources whose host paths do not overlap the root or each
@@ -34,9 +34,14 @@ only:
 - read-only source/build-input/check-input resources;
 - writable workspace/output/temporary/managed-target resources;
 - the supervisor's current numeric credentials;
-- allowed networking;
-- empty resource limits and disabled cancellation;
+- allowed, denied, or loopback-only networking;
+- empty resource limits;
 - `no_new_privileges` and an exact inspected interpreter.
+
+Both backends accept disabled cancellation through the ordinary backend call.
+A request with graceful-then-forced cancellation must enter through the
+`libpkgexec` controlled-execution call with its exact request-bound token, and
+is admitted only when the capability profile includes cancellation.
 
 Unsupported requests are rejected before program start. No requested guarantee
 is silently weakened.
@@ -61,11 +66,11 @@ mount layer. A host resource may not be inside the supplied root, because that
 would expose it both at its undeclared original path and at its declared logical
 path.
 
-Detached trees are not recursively cloned. Nested mounts and host pseudo-filesystems
-are not inherited. `/proc`, `/dev`, `/run`, `/tmp`, runtime loaders, shared
-libraries, and other execution material exist only when the supplied root
-contains them or the request declares an explicit resource at the required
-logical path.
+Detached trees are not recursively cloned. Nested mounts and host
+pseudo-filesystems are not inherited. `/proc`, `/dev`, `/run`, `/tmp`, runtime
+loaders, shared libraries, and other execution material exist only when the
+supplied root contains them or the request declares an explicit resource at the
+required logical path.
 
 The backend does not create a user namespace. A caller or test environment may
 provide delegated mount authority externally, but that delegation is not part
@@ -121,30 +126,54 @@ The parent environment is never copied. The requested umask and working
 directory are installed before execution, and inherited descriptors are
 closed.
 
-## Supervision and cleanup
+## Supervision and cancellation
 
-Each child leads a private process group. A seccomp filter prevents session,
-process-group, and namespace/mount operations that could defeat cleanup or
-alter the isolated root after setup. The parent drains stdout and stderr
-concurrently, classifies termination, terminates remaining group members, and
-verifies that the process group disappears.
+Before containment, the child calls `setsid(2)`. The execution therefore owns a
+private session and process group whose numeric group cannot be joined by an
+unrelated process in the orchestrator's session. A seccomp filter then prevents
+descendants from changing session or process-group membership and from changing
+namespace or mount state.
 
-For isolated execution the parent also verifies removal of the private scratch
-directory. `cleanup_verified` is reported only when both process and filesystem
-cleanup succeed. Cleanup failure cannot produce successful evidence.
+The child performs all fallible setup behind a final start gate. Cancellation
+observed before the gate is released prevents program start and produces
+not-started cancellation evidence only after cleanup is verified. Once the gate
+is released, an execution is classified as cancelled only when the token was
+requested and `pidfd_send_signal(2)` actually admitted a signal for the exact
+leader. A process already observed to have completed naturally is never
+reclassified as cancelled.
 
-This is not yet full package-build isolation. Version 0.3 advertises exact
-denied and loopback-only network views where the runner can realize them. It
-still advertises no arbitrary credential isolation, PID isolation, Landlock,
-cgroup, resource-limit, or cancellation guarantee.
+The supervisor retains the leader as an unreaped waitable process while cleanup
+is in progress. This prevents reuse of the execution group identity. It scans
+the supervisor's real `/proc` view for members of that closed group, opens a
+pidfd for each candidate, rechecks membership after opening the pidfd, and sends
+signals only through pidfds. The supplied execution root and any `/proc` it may
+contain do not participate.
+
+Cancellation first sends `SIGTERM` and never escalates before the sealed
+grace period has elapsed. It then repeatedly sends `SIGKILL` through pidfds
+until all non-leader group
+members disappear or cleanup fails. The leader is reaped only after descendant
+cleanup has been proved. Capture and isolated scratch cleanup remain mandatory.
+There is no ambient signal authority, global flag, process-name matching, or
+numeric-PID cancellation fallback.
+
+Ordinary execution retains the existing process-group cleanup path. Controlled
+execution uses pidfd observation and signaling throughout.
 
 ## Capability report
 
 `capability_report::probe()` reports the host supervisor.
-`capability_report::probe_isolated()` performs an end-to-end mount realization
-probe before advertising root-view, read-only-resource, writable-resource, or
-cleanup guarantees. Observations distinguish `available`, `unavailable`, and
-`policy-restricted`.
+`capability_report::probe_isolated()` additionally performs end-to-end mount and
+network realization probes. Cancellation is advertised only after an
+end-to-end probe creates a private execution session with a descendant, signals
+exact members through pidfds, observes the leader through `waitid(P_PIDFD)`, and
+verifies descendant disappearance.
 
-Kernel versions, host paths, external delegation, and diagnostic strings do not
+A raw successful `pidfd_open(2)` is diagnostic only. Observations distinguish
+`available`, `unavailable`, and `policy-restricted`. Kernel versions, host
+paths, external delegation, cancellation timing, and diagnostic strings do not
 enter backend capability-profile identities.
+
+This is not yet full package-build isolation. Version 0.4 still advertises no
+arbitrary credential isolation, PID namespace, Landlock, cgroup, or
+resource-limit guarantee.

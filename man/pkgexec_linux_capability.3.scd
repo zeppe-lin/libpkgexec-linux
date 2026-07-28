@@ -12,13 +12,19 @@ pkgexec_linux_capability - Linux backend capability observations
 
 *capability_report::probe()* reports the host supervisor.
 *capability_report::probe_isolated()* performs end-to-end private-root,
-resource-mount, denied-network, and loopback-only realization probes before
-advertising their guarantees.
+resource-mount, denied-network, loopback-only, and pidfd-cancellation
+realization probes before advertising their guarantees.
 
 Observation states are *available*, *unavailable*, and *policy-restricted*.
-Namespace, loopback configuration, Landlock, cgroup, close-range, pidfd, and
+Namespace, loopback configuration, Landlock, cgroup, close-range, raw pidfd, and
 mount observations describe the current host. They do not become execution
 guarantees unless the selected backend actually uses them to realize a request.
+
+A raw successful *pidfd_open*(2) is not sufficient for cancellation. The
+cancellation probe creates a private execution session with a descendant,
+signals exact members through pidfds, observes the leader through
+*waitid(P_PIDFD)*, and verifies that descendants disappear before advertising
+the guarantee.
 
 A raw successful namespace syscall is not sufficient for a network guarantee.
 The denied probe verifies a private link view with down loopback. The
