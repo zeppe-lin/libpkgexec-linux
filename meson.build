@@ -3,7 +3,7 @@
 project(
   'libpkgexec-linux',
   'cpp',
-  version: '0.2.0',
+  version: '0.3.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -18,7 +18,7 @@ if host_machine.system() != 'linux'
   error('libpkgexec-linux requires Linux')
 endif
 if host_machine.cpu_family() != 'x86_64'
-  error('libpkgexec-linux 0.2 supports x86_64 only')
+  error('libpkgexec-linux 0.3 supports x86_64 only')
 endif
 
 library_kind = get_option('default_library')

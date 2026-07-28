@@ -16,7 +16,7 @@ fail()
   exit 1
 }
 grep -Eq '^Name:[[:space:]]+libpkgexec-linux$' "$pc" || fail 'wrong module name'
-grep -Eq '^Version:[[:space:]]+0\.2\.0$' "$pc" || fail 'wrong version'
+grep -Eq '^Version:[[:space:]]+0\.3\.0$' "$pc" || fail 'wrong version'
 grep -Eq '^Libs:.*-lpkgexec-linux([[:space:]]|$)' "$pc" || fail 'missing Linux backend library'
 grep -Eq '(^|[[:space:],])libpkgexec[[:space:]]*>=[[:space:]]*1\.0\.0([[:space:],]|$)' "$pc" ||
   fail 'missing exact execution authority floor'

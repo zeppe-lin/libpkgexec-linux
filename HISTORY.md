@@ -1,5 +1,22 @@
 # History
 
+## libpkgexec-linux 0.3.0
+
+Extends `isolated_backend` with exact Linux network-policy realization.
+`network_policy::denied` creates a private network namespace whose only link is
+administratively down loopback. `network_policy::loopback_only` creates the
+same private view, brings only loopback up through rtnetlink, and proves an
+internal round trip before advertising the guarantee. Allowed networking
+preserves the caller's network namespace.
+
+Capability reporting is proof-based: a raw namespace syscall is not enough. A
+runner that cannot create and configure the requested view rejects the request
+before program start, without fallback to allowed networking. The release keeps
+the 0.2 filesystem contract, `host_supervisor_backend`, and SONAME 0 unchanged.
+
+The release still does not add user or PID namespaces, Landlock, cgroups,
+arbitrary credential transitions, resource limits, or cancellation.
+
 ## libpkgexec-linux 0.2.0
 
 Adds `isolated_backend`, a descriptor-oriented private mount-view executor. It
