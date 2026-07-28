@@ -5,6 +5,7 @@
 #include <libpkgexec-linux/error.h>
 
 #include "mount_isolation.h"
+#include "network_isolation.h"
 #include "process_control.h"
 #include "support.h"
 
@@ -107,6 +108,7 @@ std::string_view to_string(capability_kind value) noexcept
     case capability_kind::network_namespace: return "network-namespace";
     case capability_kind::landlock: return "landlock";
     case capability_kind::cgroup_v2: return "cgroup-v2";
+    case capability_kind::loopback_configuration: return "loopback-configuration";
   }
   return "unknown";
 }
@@ -203,6 +205,8 @@ capability_report capability_report::probe()
       {capability_kind::network_namespace, namespace_state(CLONE_NEWNET)},
       {capability_kind::landlock, landlock_state()},
       {capability_kind::cgroup_v2, cgroup_state()},
+      {capability_kind::loopback_configuration, capability_state::unavailable,
+       "host supervisor creates no private loopback view"},
   };
   return capability_report(
       pkgexec::backend_capability_profile::seal(
@@ -222,6 +226,20 @@ capability_report capability_report::probe_isolated()
       : (mount_error == EPERM || mount_error == EACCES
              ? capability_state::policy_restricted
              : capability_state::unavailable);
+  detail::network_setup_failure denied_failure{};
+  detail::network_setup_failure loopback_failure{};
+  const bool denied_network = detail::probe_network_policy(
+      pkgexec::network_policy::denied, denied_failure);
+  const bool loopback_network = detail::probe_network_policy(
+      pkgexec::network_policy::loopback_only, loopback_failure);
+  const auto network_state = [](bool available,
+                                const detail::network_setup_failure& failure) {
+    return available
+        ? capability_state::available
+        : (failure.error == EPERM || failure.error == EACCES
+               ? capability_state::policy_restricted
+               : capability_state::unavailable);
+  };
 
   std::vector<pkgexec::execution_guarantee> guarantees{
       pkgexec::execution_guarantee::closed_environment,
@@ -240,10 +258,23 @@ capability_report capability_report::probe_isolated()
   if (containment && filesystem) {
     guarantees.push_back(pkgexec::execution_guarantee::cleanup_verified);
   }
+  if (containment && capability_drop && denied_network) {
+    guarantees.push_back(pkgexec::execution_guarantee::network_denied);
+  }
+  if (containment && capability_drop && loopback_network) {
+    guarantees.push_back(pkgexec::execution_guarantee::loopback_isolated);
+  }
 
   const std::string mount_diagnostic = filesystem
       ? "private descriptor-oriented root and resource mounts are available"
       : detail::errno_message("isolated mount probe", mount_error);
+  const auto network_diagnostic = [](bool available,
+                                     const detail::network_setup_failure& failure) {
+    return available
+        ? std::string("private network policy realization is available")
+        : detail::errno_message(detail::network_stage_name(failure.stage),
+                                failure.error);
+  };
   std::vector<capability_observation> observations{
       {capability_kind::process_supervision, capability_state::available},
       {capability_kind::closed_environment, capability_state::available},
@@ -284,9 +315,14 @@ capability_report capability_report::probe_isolated()
       {capability_kind::user_namespace, namespace_state(CLONE_NEWUSER),
        "observed only; isolated backend does not create a user namespace"},
       {capability_kind::pid_namespace, namespace_state(CLONE_NEWPID)},
-      {capability_kind::network_namespace, namespace_state(CLONE_NEWNET)},
+      {capability_kind::network_namespace,
+       network_state(denied_network, denied_failure),
+       network_diagnostic(denied_network, denied_failure)},
       {capability_kind::landlock, landlock_state()},
       {capability_kind::cgroup_v2, cgroup_state()},
+      {capability_kind::loopback_configuration,
+       network_state(loopback_network, loopback_failure),
+       network_diagnostic(loopback_network, loopback_failure)},
   };
   return capability_report(
       pkgexec::backend_capability_profile::seal(

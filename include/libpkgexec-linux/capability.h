@@ -39,6 +39,7 @@ enum class capability_kind {
   network_namespace,
   landlock,
   cgroup_v2,
+  loopback_configuration,
 };
 
 enum class capability_state {

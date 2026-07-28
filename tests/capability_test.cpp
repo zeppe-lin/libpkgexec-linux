@@ -28,6 +28,8 @@ int test()
         capability_state::available);
   CHECK(to_string(capability_kind::descriptor_execution) ==
         "descriptor-execution");
+  CHECK(first.state(capability_kind::loopback_configuration) ==
+        capability_state::unavailable);
   CHECK(!first.observations().empty());
   CHECK(std::is_sorted(first.profile().guarantees().begin(),
                        first.profile().guarantees().end()));
@@ -47,10 +49,29 @@ int test()
         capability_state::available);
   CHECK(to_string(capability_kind::open_tree) == "open-tree");
   CHECK(to_string(capability_kind::move_mount) == "move-mount");
-  CHECK(std::find(isolated_first.profile().guarantees().begin(),
-                  isolated_first.profile().guarantees().end(),
-                  pkgexec::execution_guarantee::network_denied) ==
-        isolated_first.profile().guarantees().end());
+  const bool network_prerequisites =
+      isolated_first.state(capability_kind::process_group_containment) ==
+          capability_state::available &&
+      isolated_first.state(capability_kind::capability_drop) ==
+          capability_state::available;
+  const bool denied_advertised =
+      std::find(isolated_first.profile().guarantees().begin(),
+                isolated_first.profile().guarantees().end(),
+                pkgexec::execution_guarantee::network_denied) !=
+      isolated_first.profile().guarantees().end();
+  const bool loopback_advertised =
+      std::find(isolated_first.profile().guarantees().begin(),
+                isolated_first.profile().guarantees().end(),
+                pkgexec::execution_guarantee::loopback_isolated) !=
+      isolated_first.profile().guarantees().end();
+  CHECK(denied_advertised ==
+        (network_prerequisites &&
+         isolated_first.state(capability_kind::network_namespace) ==
+             capability_state::available));
+  CHECK(loopback_advertised ==
+        (network_prerequisites &&
+         isolated_first.state(capability_kind::loopback_configuration) ==
+             capability_state::available));
   if (isolated_first.state(capability_kind::mount_namespace) ==
       capability_state::available) {
     CHECK(std::find(isolated_first.profile().guarantees().begin(),
@@ -58,6 +79,8 @@ int test()
                     pkgexec::execution_guarantee::read_only_resources) !=
           isolated_first.profile().guarantees().end());
   }
+  CHECK(to_string(capability_kind::loopback_configuration) ==
+        "loopback-configuration");
   CHECK(to_string(capability_kind::landlock) == "landlock");
   CHECK(to_string(capability_state::policy_restricted) == "policy-restricted");
   return 0;
