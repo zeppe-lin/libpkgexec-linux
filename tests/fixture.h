@@ -58,7 +58,8 @@ inline pkgexec::execution_request request(
     pkgexec::stream_policy standard_error = pkgexec::stream_policy::capture_complete,
     std::uint64_t user = static_cast<std::uint64_t>(::getuid()),
     pkgexec::cancellation_policy cancellation =
-        pkgexec::cancellation_policy::disabled())
+        pkgexec::cancellation_policy::disabled(),
+    pkgexec::resource_limits limits = pkgexec::resource_limits::make())
 {
   using namespace pkgexec;
   const auto slot = resource_slot::singleton(resource_role::build_workspace);
@@ -85,7 +86,7 @@ inline pkgexec::execution_request request(
       std::move(layout), std::move(environment),
       credential_policy::fixed(user, static_cast<std::uint64_t>(::getgid()),
                                groups(), no_new_privileges),
-      resource_limits::make(), std::move(cancellation));
+      std::move(limits), std::move(cancellation));
 }
 
 inline pkgexec::execution_resources resources(

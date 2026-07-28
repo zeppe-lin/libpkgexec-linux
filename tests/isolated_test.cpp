@@ -28,6 +28,7 @@ namespace {
 
 std::filesystem::path network_probe;
 std::filesystem::path cancellation_probe;
+std::filesystem::path resource_limit_probe;
 
 class parent_listener final {
 public:
@@ -93,7 +94,8 @@ class temporary_tree final {
 public:
   temporary_tree(const pkgexec_linux::interpreter_binding& interpreter,
                  const std::filesystem::path& network,
-                 const std::filesystem::path& cancellation)
+                 const std::filesystem::path& cancellation,
+                 const std::filesystem::path& limits)
   {
     std::array<char, 64> pattern{};
     const char* value = "/tmp/pkgexec-isolated.XXXXXX";
@@ -116,6 +118,7 @@ public:
     runtime_fixture::copy_runtime(root_, network, "/bin/network-probe");
     runtime_fixture::copy_runtime(root_, cancellation,
                                   "/bin/cancellation-probe");
+    runtime_fixture::copy_runtime(root_, limits, "/bin/resource-limit-probe");
     std::ofstream(source_ / "input") << "source\n";
   }
   ~temporary_tree()
@@ -178,7 +181,8 @@ pkgexec::execution_request request(
     pkgexec::network_policy network = pkgexec::network_policy::allowed,
     std::optional<std::string> program = std::nullopt,
     pkgexec::cancellation_policy cancellation =
-        pkgexec::cancellation_policy::disabled())
+        pkgexec::cancellation_policy::disabled(),
+    pkgexec::resource_limits limits = pkgexec::resource_limits::make())
 {
   using namespace pkgexec;
   const auto source_slot =
@@ -216,7 +220,7 @@ pkgexec::execution_request request(
       credential_policy::fixed(static_cast<std::uint64_t>(::getuid()),
                                static_cast<std::uint64_t>(::getgid()),
                                groups(), true),
-      resource_limits::make(), std::move(cancellation));
+      std::move(limits), std::move(cancellation));
 }
 
 pkgexec::execution_resources resources(
@@ -267,7 +271,8 @@ bool has_guarantee(const pkgexec::execution_result& result,
 int test()
 {
   const auto shell = pkgexec_linux::interpreter_binding::inspect("/bin/sh");
-  temporary_tree tree(shell, network_probe, cancellation_probe);
+  temporary_tree tree(shell, network_probe, cancellation_probe,
+                      resource_limit_probe);
   auto backend = pkgexec_linux::isolated_backend::make({shell});
   auto execution_request = request(shell);
   auto execution_resources = resources(execution_request, tree);
@@ -287,6 +292,35 @@ int test()
   CHECK(std::filesystem::exists(tree.workspace() / "output"));
   CHECK(!std::filesystem::exists(tree.source() / "forbidden"));
   CHECK(!std::filesystem::exists(tree.root() / "root-only" / "forbidden"));
+
+  auto limited_request = request(
+      shell, pkgexec::network_policy::allowed,
+      "/bin/resource-limit-probe show",
+      pkgexec::cancellation_policy::disabled(),
+      pkgexec::resource_limits::make(
+          std::nullopt, 256U * 1024U * 1024U, 4096U, 64U));
+  if (!backend.capabilities().supports(limited_request)) {
+    auto unsupported = backend.execute(limited_request,
+                                       resources(limited_request, tree));
+    CHECK(unsupported.failure() ==
+          pkgexec::execution_failure_kind::backend_unsupported);
+    return 77;
+  }
+  auto limited = backend.execute(limited_request,
+                                 resources(limited_request, tree));
+  require_success(limited, "isolated resource-limit execution");
+  CHECK(output(limited) ==
+        "as=268435456/268435456\n"
+        "fsize=4096/4096\n"
+        "nofile=64/64\n");
+  CHECK(has_guarantee(limited,
+                      pkgexec::execution_guarantee::resource_limits));
+  CHECK(has_guarantee(limited,
+                      pkgexec::execution_guarantee::address_space_limit));
+  CHECK(has_guarantee(limited,
+                      pkgexec::execution_guarantee::file_size_limit));
+  CHECK(has_guarantee(limited,
+                      pkgexec::execution_guarantee::open_files_limit));
 
   const auto symlink = tree.workspace().parent_path() / "source-link";
   std::filesystem::create_directory_symlink(tree.source(), symlink);
@@ -430,10 +464,11 @@ int test()
 
 int main(int argc, char** argv)
 {
-  if (argc != 3) {
+  if (argc != 4) {
     return 2;
   }
   network_probe = argv[1];
   cancellation_probe = argv[2];
+  resource_limit_probe = argv[3];
   return run_test(test);
 }

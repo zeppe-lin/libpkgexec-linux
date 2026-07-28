@@ -36,6 +36,21 @@ if get_option('tests').enabled()
   test('cancellation', cancellation_test,
        args: [cancellation_probe.full_path()])
 
+  resource_limit_probe = executable(
+    'resource-limit-probe',
+    'resource_limit_probe.cpp',
+    install: false,
+  )
+  resource_limit_test = executable(
+    'resource-limit-test',
+    'resource_limit_test.cpp',
+    include_directories: include_directories('.'),
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test('resource-limit', resource_limit_test,
+       args: [resource_limit_probe.full_path()])
+
   isolated_test = executable(
     'isolated-test',
     'isolated_test.cpp',
@@ -44,7 +59,8 @@ if get_option('tests').enabled()
     install: false,
   )
   test('isolated', isolated_test,
-       args: [network_probe.full_path(), cancellation_probe.full_path()])
+       args: [network_probe.full_path(), cancellation_probe.full_path(),
+              resource_limit_probe.full_path()])
 
   foreach header : [
     'libpkgexec-linux/libpkgexec-linux.h',

@@ -30,6 +30,12 @@ int test()
         "descriptor-execution");
   CHECK(to_string(capability_kind::pidfd_cancellation) ==
         "pidfd-cancellation");
+  CHECK(to_string(capability_kind::address_space_limit) ==
+        "address-space-limit");
+  CHECK(to_string(capability_kind::file_size_limit) ==
+        "file-size-limit");
+  CHECK(to_string(capability_kind::open_files_limit) ==
+        "open-files-limit");
   CHECK(first.state(capability_kind::loopback_configuration) ==
         capability_state::unavailable);
   CHECK(!first.observations().empty());
@@ -52,6 +58,33 @@ int test()
   CHECK(host_cancellation_advertised ==
         (first.state(capability_kind::pidfd_cancellation) ==
          capability_state::available));
+  const auto host_limit = [&](capability_kind observation,
+                              pkgexec::execution_guarantee guarantee) {
+    const bool advertised =
+        std::find(first.profile().guarantees().begin(),
+                  first.profile().guarantees().end(), guarantee) !=
+        first.profile().guarantees().end();
+    CHECK(advertised ==
+          (first.state(observation) == capability_state::available));
+  };
+  host_limit(capability_kind::address_space_limit,
+             pkgexec::execution_guarantee::address_space_limit);
+  host_limit(capability_kind::file_size_limit,
+             pkgexec::execution_guarantee::file_size_limit);
+  host_limit(capability_kind::open_files_limit,
+             pkgexec::execution_guarantee::open_files_limit);
+  const bool aggregate_limits =
+      std::find(first.profile().guarantees().begin(),
+                first.profile().guarantees().end(),
+                pkgexec::execution_guarantee::resource_limits) !=
+      first.profile().guarantees().end();
+  CHECK(aggregate_limits ==
+        (first.state(capability_kind::address_space_limit) ==
+             capability_state::available ||
+         first.state(capability_kind::file_size_limit) ==
+             capability_state::available ||
+         first.state(capability_kind::open_files_limit) ==
+             capability_state::available));
 
   const auto isolated_first = capability_report::probe_isolated();
   const auto isolated_second = capability_report::probe_isolated();
@@ -100,6 +133,21 @@ int test()
   CHECK(isolated_cancellation_advertised ==
         (isolated_first.state(capability_kind::pidfd_cancellation) ==
          capability_state::available));
+  for (const auto& pair : {
+           std::pair{capability_kind::address_space_limit,
+                     pkgexec::execution_guarantee::address_space_limit},
+           std::pair{capability_kind::file_size_limit,
+                     pkgexec::execution_guarantee::file_size_limit},
+           std::pair{capability_kind::open_files_limit,
+                     pkgexec::execution_guarantee::open_files_limit},
+       }) {
+    const bool advertised =
+        std::find(isolated_first.profile().guarantees().begin(),
+                  isolated_first.profile().guarantees().end(), pair.second) !=
+        isolated_first.profile().guarantees().end();
+    CHECK(advertised ==
+          (isolated_first.state(pair.first) == capability_state::available));
+  }
   CHECK(to_string(capability_kind::loopback_configuration) ==
         "loopback-configuration");
   CHECK(to_string(capability_kind::landlock) == "landlock");
