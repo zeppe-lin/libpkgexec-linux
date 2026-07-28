@@ -5,6 +5,7 @@
 #include <libpkgexec-linux/error.h>
 
 #include "mount_isolation.h"
+#include "network_isolation.h"
 #include "process_control.h"
 #include "support.h"
 
@@ -208,9 +209,6 @@ std::string validate_host_request_shape(
 std::string validate_isolated_request_shape(
     const pkgexec::execution_request& request)
 {
-  if (request.environment().network() != pkgexec::network_policy::allowed) {
-    return "isolated filesystem backend does not isolate networking";
-  }
   if (!request.limits().empty()) {
     return "isolated filesystem backend does not classify resource limits";
   }
@@ -232,6 +230,7 @@ enum class child_stage : std::uint32_t {
   process_group,
   standard_streams,
   mount_isolation,
+  network_isolation,
   working_directory,
   capability_drop,
   containment,
@@ -270,6 +269,7 @@ struct child_configuration final {
   std::uint32_t file_creation_mask;
   const char* working_directory;
   const detail::isolated_admission* isolation;
+  pkgexec::network_policy network;
   int interpreter_fd;
   char* const* arguments;
   char* const* environment;
@@ -329,6 +329,13 @@ struct child_configuration final {
       report_child_error(control_fd, child_stage::mount_isolation,
                          failure.error,
                          static_cast<std::uint32_t>(failure.stage));
+      _exit(125);
+    }
+    detail::network_setup_failure network_failure{};
+    if (!detail::setup_network_policy(configuration.network, network_failure)) {
+      report_child_error(control_fd, child_stage::network_isolation,
+                         network_failure.error,
+                         static_cast<std::uint32_t>(network_failure.stage));
       _exit(125);
     }
   }
@@ -411,6 +418,7 @@ pkgexec::execution_failure_kind child_failure_kind(const child_error& failure)
     case child_stage::working_directory:
       return pkgexec::execution_failure_kind::resource_admission_failed;
     case child_stage::mount_isolation:
+    case child_stage::network_isolation:
     case child_stage::capability_drop:
     case child_stage::containment:
     case child_stage::process_group:
@@ -434,6 +442,10 @@ std::string child_failure_diagnostic(const child_error& failure)
     case child_stage::mount_isolation:
       operation = detail::mount_stage_name(
           static_cast<detail::mount_setup_stage>(failure.detail)).data();
+      break;
+    case child_stage::network_isolation:
+      operation = detail::network_stage_name(
+          static_cast<detail::network_setup_stage>(failure.detail)).data();
       break;
     case child_stage::working_directory: operation = "chdir"; break;
     case child_stage::capability_drop: operation = "capability drop"; break;
@@ -498,7 +510,7 @@ pkgexec::execution_result execute_backend(
   if (!profile.supports(request)) {
     return pkgexec::execution_result::failed_before_start(
         request, profile, pkgexec::execution_failure_kind::backend_unsupported,
-        {}, "Linux host supervisor cannot establish all requested guarantees");
+        {}, "Linux backend cannot establish all requested guarantees");
   }
 
   std::optional<detail::isolated_admission> isolation;
@@ -596,7 +608,7 @@ pkgexec::execution_result execute_backend(
       request.environment().standard_error(),
       request.environment().file_creation_mask(),
       working_directory.c_str(), isolation ? &*isolation : nullptr,
-      interpreter_fd.get(),
+      request.environment().network(), interpreter_fd.get(),
       arguments.data(), environment_pointers.data(),
   };
 

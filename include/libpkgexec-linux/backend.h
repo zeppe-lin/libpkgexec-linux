@@ -38,13 +38,15 @@ private:
 };
 
 
-/*! \brief Linux v0.2 backend with a private mount view.
+/*! \brief Linux v0.3 backend with private filesystem and network views.
  *
  *  The backend realizes the exact supplied root view in a private mount
  *  namespace, attaches each admitted directory at its logical path, and
- *  enforces read-only or writable access at the mount layer. It currently
- *  admits only the supervisor's numeric credentials, allowed networking,
- *  empty resource limits, and disabled cancellation.
+ *  enforces read-only or writable access at the mount layer. Allowed networking
+ *  preserves the caller's network namespace. Denied and loopback-only policy
+ *  create private network namespaces. The backend currently admits only the
+ *  supervisor's numeric credentials, empty resource limits, and disabled
+ *  cancellation.
  */
 class isolated_backend final : public pkgexec::execution_backend {
 public:

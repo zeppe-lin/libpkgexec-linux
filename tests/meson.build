@@ -5,7 +5,6 @@ if get_option('tests').enabled()
     'capability',
     'interpreter',
     'backend',
-    'isolated',
   ]
     test_binary = executable(
       test_name + '-test',
@@ -16,6 +15,20 @@ if get_option('tests').enabled()
     )
     test(test_name, test_binary)
   endforeach
+
+  network_probe = executable(
+    'network-probe',
+    'network_probe.cpp',
+    install: false,
+  )
+  isolated_test = executable(
+    'isolated-test',
+    'isolated_test.cpp',
+    include_directories: include_directories('.'),
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test('isolated', isolated_test, args: [network_probe.full_path()])
 
   foreach header : [
     'libpkgexec-linux/libpkgexec-linux.h',

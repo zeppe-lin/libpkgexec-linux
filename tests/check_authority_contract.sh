@@ -30,6 +30,15 @@ grep -q 'cannot overlap the root view' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource overlap rejection missing'
 grep -q 'move_mount' "$root/src/mount_isolation.cpp" ||
   fail 'descriptor mount attachment missing'
+grep -q 'setup_network_policy' "$root/src/backend.cpp" ||
+  fail 'network policy is not wired into child setup'
+grep -q 'CLONE_NEWNET' "$root/src/network_isolation.cpp" ||
+  fail 'private network namespace authority missing'
+grep -q 'NETLINK_ROUTE' "$root/src/network_isolation.cpp" ||
+  fail 'rtnetlink loopback authority missing'
+! grep -E 'system\(|popen\(|execl|execv' \
+    "$root/src/network_isolation.cpp" >/dev/null ||
+  fail 'external utility entered network authority'
 ! grep -R -E 'pkgman\.conf|Pkgfile|fakeroot|legacy' \
     "$root/include" "$root/src" >/dev/null ||
   fail 'historical compatibility entered the backend'
