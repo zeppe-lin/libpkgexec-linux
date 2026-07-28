@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 /*! \file capability.h
- *  \brief Linux host-supervisor capability observations.
+ *  \brief Linux backend capability observations.
  */
 #pragma once
 

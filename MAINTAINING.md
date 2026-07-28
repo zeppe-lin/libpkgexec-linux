@@ -8,8 +8,9 @@ mbox replay.
 
 The isolated backend additionally requires both outcomes from its integration
 test: an explicit skip on a non-delegated runner and a real pass on a runner
-that can create and populate the private mount namespace. Never count a skip as
-isolation coverage.
+that can create and populate the private mount and network namespaces. The real
+pass must prove denied parent reachability and loopback-only internal
+reachability. Never count a skip as isolation coverage.
 
 Capability changes require deliberate ABI and release review. Diagnostic probes
 must not silently alter guarantees advertised by an existing backend identity.

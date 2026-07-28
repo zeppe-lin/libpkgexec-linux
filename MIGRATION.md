@@ -1,23 +1,27 @@
 # Migration
 
-`libpkgexec-linux 0.2.0` adds `isolated_backend` without changing the 0.1 host
-supervisor or SONAME.
+`libpkgexec-linux 0.3.0` extends `isolated_backend` with denied and
+loopback-only network policies without changing the host supervisor or SONAME.
 
-Callers choosing the isolated backend must supply a dedicated root-view
-directory rather than `/`. The root must already contain the exact interpreter
-path and every runtime object needed by the program. The backend does not copy
-host `/usr`, `/lib`, `/proc`, `/dev`, `/run`, or any other undeclared tree into
-the isolated view.
+An isolated request may now select:
 
-Every declared logical resource destination must already exist as a directory
-inside the root. Source and package-input resources must be read-only;
-workspace, output, private temporary, and managed-target resources must be
-writable. Host resource paths cannot overlap the root or each other.
+- `network_policy::allowed`, which preserves the caller's network namespace;
+- `network_policy::denied`, which creates a private network namespace with only
+  an administratively down loopback interface;
+- `network_policy::loopback_only`, which creates a private network namespace
+  and brings up only loopback.
 
-A runner without delegated mount authority receives `backend_unsupported`.
-Do not fall back silently to `host_supervisor_backend` when a request requires
-root-view or read-only-resource guarantees.
+Denied and loopback-only requests are admitted only when the current runner can
+realize and verify the exact view. A restricted runner receives
+`backend_unsupported` before program start. Do not retry the request with
+allowed networking.
 
-There is no reinterpretation of 0.1 execution evidence. Namespace, network,
-Landlock, cgroup, credential, limit, and cancellation guarantees remain absent
-until a later backend release establishes them explicitly.
+The filesystem contract introduced in 0.2 is unchanged. Callers must still
+supply a dedicated root-view directory containing the exact interpreter and
+runtime closure. Every logical resource destination must exist inside the root,
+and host resource paths cannot overlap the root or each other.
+
+There is no reinterpretation of 0.2 evidence. Network guarantees enter 0.3
+evidence only for requests that selected and established the corresponding
+policy. User namespace, PID namespace, Landlock, cgroup, credential, limit, and
+cancellation guarantees remain absent.

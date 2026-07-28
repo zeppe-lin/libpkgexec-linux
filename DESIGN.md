@@ -71,6 +71,29 @@ The backend does not create a user namespace. A caller or test environment may
 provide delegated mount authority externally, but that delegation is not part
 of the execution request or backend identity.
 
+## Network isolation
+
+Allowed networking preserves the caller's network namespace and carries no
+network-isolation guarantee.
+
+Denied and loopback-only policies create a fresh network namespace. The backend
+uses rtnetlink directly to inspect the new link view and to set the loopback
+administrative state. Denied policy verifies that loopback is the only link and
+is down. Loopback-only verifies that loopback is the only link, is up, and can
+complete an internal round trip. Neither view inherits a host interface or
+route.
+
+Network setup occurs after private-root realization and before capability
+removal and seccomp containment. Once execution begins, descendants have no
+capability to reconfigure the namespace and cannot create or join another
+namespace. Unix-domain sockets remain governed by the filesystem resource view;
+network denial means no usable IPv4 or IPv6 path, not a ban on every socket
+domain.
+
+The capability profile includes a network guarantee only after the complete
+policy realization succeeds. A failed or policy-restricted probe causes
+pre-start refusal, never fallback to allowed networking.
+
 ## Interpreter authority
 
 `interpreter_binding::inspect()` resolves the supplied path, rejects a resolved
@@ -110,9 +133,10 @@ For isolated execution the parent also verifies removal of the private scratch
 directory. `cleanup_verified` is reported only when both process and filesystem
 cleanup succeed. Cleanup failure cannot produce successful evidence.
 
-This is not yet full package-build isolation. Version 0.2 advertises no network
-denial, arbitrary credential isolation, PID isolation, Landlock, cgroup,
-resource-limit, or cancellation guarantee.
+This is not yet full package-build isolation. Version 0.3 advertises exact
+denied and loopback-only network views where the runner can realize them. It
+still advertises no arbitrary credential isolation, PID isolation, Landlock,
+cgroup, resource-limit, or cancellation guarantee.
 
 ## Capability report
 
