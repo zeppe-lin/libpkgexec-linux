@@ -16,8 +16,8 @@ grep -q "soversion: '0'" "$root/src/meson.build" || {
   echo 'release-metadata: SONAME 0 contract missing' >&2
   exit 1
 }
-grep -q "libpkgexec >= 1.0.0" "$root/src/meson.build" || {
-  echo 'release-metadata: execution authority floor missing' >&2
+grep -q "libpkgexec >= 1.1.0" "$root/src/meson.build" || {
+  echo 'release-metadata: controlled execution authority floor missing' >&2
   exit 1
 }
 grep -q 'network_policy::denied' "$root/HISTORY.md" || {

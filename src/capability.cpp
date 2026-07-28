@@ -95,6 +95,7 @@ std::string_view to_string(capability_kind value) noexcept
     case capability_kind::descriptor_execution: return "descriptor-execution";
     case capability_kind::close_range: return "close-range";
     case capability_kind::pidfd: return "pidfd";
+    case capability_kind::pidfd_cancellation: return "pidfd-cancellation";
     case capability_kind::mount_namespace: return "mount-namespace";
     case capability_kind::private_mount_propagation: return "private-mount-propagation";
     case capability_kind::openat2: return "openat2";
@@ -146,6 +147,8 @@ capability_report capability_report::probe()
 {
   const bool containment = detail::probe_process_group_containment();
   const bool descriptor_execution = detail::probe_descriptor_execution();
+  const bool pidfd_cancellation = containment &&
+      detail::probe_pidfd_cancellation();
   std::vector<pkgexec::execution_guarantee> guarantees{
       pkgexec::execution_guarantee::closed_environment,
       pkgexec::execution_guarantee::root_view,
@@ -159,6 +162,9 @@ capability_report capability_report::probe()
   }
   if (containment) {
     guarantees.push_back(pkgexec::execution_guarantee::cleanup_verified);
+  }
+  if (pidfd_cancellation) {
+    guarantees.push_back(pkgexec::execution_guarantee::cancellation);
   }
   std::vector<capability_observation> observations{
       {capability_kind::process_supervision, capability_state::available},
@@ -183,6 +189,12 @@ capability_report capability_report::probe()
       {capability_kind::pidfd,
        detail::probe_pidfd() ? capability_state::available
                              : capability_state::unavailable},
+      {capability_kind::pidfd_cancellation,
+       pidfd_cancellation ? capability_state::available
+                          : capability_state::unavailable,
+       pidfd_cancellation
+           ? "pidfd-backed process-group cancellation is available"
+           : "pidfd-backed process-group cancellation could not be realized"},
       {capability_kind::mount_namespace, namespace_state(CLONE_NEWNS)},
       {capability_kind::private_mount_propagation, capability_state::unavailable,
        "host supervisor creates no mount namespace"},
@@ -218,6 +230,8 @@ capability_report capability_report::probe_isolated()
 {
   const bool containment = detail::probe_process_group_containment();
   const bool descriptor_execution = detail::probe_descriptor_execution();
+  const bool pidfd_cancellation = containment &&
+      detail::probe_pidfd_cancellation();
   const bool capability_drop = detail::probe_capability_drop();
   int mount_error = 0;
   const bool filesystem = detail::probe_isolated_filesystem(mount_error);
@@ -257,6 +271,9 @@ capability_report capability_report::probe_isolated()
   }
   if (containment && filesystem) {
     guarantees.push_back(pkgexec::execution_guarantee::cleanup_verified);
+  }
+  if (pidfd_cancellation) {
+    guarantees.push_back(pkgexec::execution_guarantee::cancellation);
   }
   if (containment && capability_drop && denied_network) {
     guarantees.push_back(pkgexec::execution_guarantee::network_denied);
@@ -300,6 +317,12 @@ capability_report capability_report::probe_isolated()
       {capability_kind::pidfd,
        detail::probe_pidfd() ? capability_state::available
                              : capability_state::unavailable},
+      {capability_kind::pidfd_cancellation,
+       pidfd_cancellation ? capability_state::available
+                          : capability_state::unavailable,
+       pidfd_cancellation
+           ? "pidfd-backed process-group cancellation is available"
+           : "pidfd-backed process-group cancellation could not be realized"},
       {capability_kind::mount_namespace, mount_state, mount_diagnostic},
       {capability_kind::private_mount_propagation, mount_state, mount_diagnostic},
       {capability_kind::openat2,

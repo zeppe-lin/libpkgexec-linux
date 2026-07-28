@@ -164,9 +164,6 @@ std::string validate_host_request_shape(
   if (!request.limits().empty()) {
     return "host supervisor does not classify resource limits";
   }
-  if (request.cancellation().mode() != pkgexec::cancellation_mode::disabled) {
-    return "host supervisor has no call-scoped cancellation handle";
-  }
   if (!request.credentials().no_new_privileges()) {
     return "host supervisor requires no-new-privileges containment";
   }
@@ -211,9 +208,6 @@ std::string validate_isolated_request_shape(
 {
   if (!request.limits().empty()) {
     return "isolated filesystem backend does not classify resource limits";
-  }
-  if (request.cancellation().mode() != pkgexec::cancellation_mode::disabled) {
-    return "isolated filesystem backend has no call-scoped cancellation handle";
   }
   if (!request.credentials().no_new_privileges()) {
     return "isolated filesystem backend requires no-new-privileges containment";
@@ -279,10 +273,12 @@ struct child_configuration final {
     const child_configuration& configuration,
     pipe_pair& standard_output,
     pipe_pair& standard_error,
-    pipe_pair& control)
+    pipe_pair& control,
+    pipe_pair& ready,
+    pipe_pair& start)
 {
   const int control_fd = control.write.get();
-  if (::setpgid(0, 0) != 0) {
+  if (::setsid() < 0) {
     report_child_error(control_fd, child_stage::process_group, errno);
     _exit(125);
   }
@@ -351,6 +347,26 @@ struct child_configuration final {
   }
   if (!detail::install_process_group_containment()) {
     report_child_error(control_fd, child_stage::containment, errno);
+    _exit(125);
+  }
+
+  const unsigned char ready_byte = 1;
+  ssize_t ready_count = -1;
+  do {
+    ready_count = ::write(ready.write.get(), &ready_byte, 1);
+  } while (ready_count < 0 && errno == EINTR);
+  ready.write.reset();
+  if (ready_count != 1) {
+    _exit(125);
+  }
+
+  unsigned char start_byte = 0;
+  ssize_t start_count = -1;
+  do {
+    start_count = ::read(start.read.get(), &start_byte, 1);
+  } while (start_count < 0 && errno == EINTR);
+  start.read.reset();
+  if (start_count != 1 || start_byte != 1) {
     _exit(125);
   }
 
@@ -437,7 +453,7 @@ std::string child_failure_diagnostic(const child_error& failure)
 {
   const char* operation = "child setup";
   switch (failure.stage) {
-    case child_stage::process_group: operation = "setpgid"; break;
+    case child_stage::process_group: operation = "setsid"; break;
     case child_stage::standard_streams: operation = "standard stream setup"; break;
     case child_stage::mount_isolation:
       operation = detail::mount_stage_name(
@@ -465,6 +481,46 @@ std::vector<pkgexec::execution_guarantee> without_guarantee(
                  return value != removed;
                });
   return result;
+}
+
+
+bool observe_child_exit(pid_t child, int pidfd, siginfo_t& information) noexcept
+{
+  information = {};
+  const idtype_t type = pidfd >= 0 ? static_cast<idtype_t>(3) : P_PID;
+  const id_t identifier = pidfd >= 0 ? static_cast<id_t>(pidfd)
+                                     : static_cast<id_t>(child);
+  for (;;) {
+    if (::waitid(type, identifier, &information,
+                 WEXITED | WNOHANG | WNOWAIT) == 0) {
+      return information.si_pid != 0;
+    }
+    if (errno != EINTR) {
+      return false;
+    }
+  }
+}
+
+pkgexec::process_termination termination_from_siginfo(
+    const siginfo_t& information)
+{
+  if (information.si_code == CLD_EXITED) {
+    return pkgexec::process_termination::exited(
+        static_cast<std::uint32_t>(information.si_status));
+  }
+  return pkgexec::process_termination::signaled(
+      static_cast<std::uint32_t>(information.si_status));
+}
+
+bool write_start(unique_fd& fd) noexcept
+{
+  const unsigned char value = 1;
+  ssize_t count = -1;
+  do {
+    count = ::write(fd.get(), &value, 1);
+  } while (count < 0 && errno == EINTR);
+  fd.reset();
+  return count == 1;
 }
 
 } // namespace
@@ -504,13 +560,20 @@ pkgexec::execution_result execute_backend(
     const std::vector<interpreter_binding>& interpreters,
     const pkgexec::execution_request& request,
     const pkgexec::execution_resources& resources,
-    bool isolated)
+    bool isolated,
+    const pkgexec::cancellation_token* cancellation)
 {
   const auto profile = report.profile();
   if (!profile.supports(request)) {
     return pkgexec::execution_result::failed_before_start(
         request, profile, pkgexec::execution_failure_kind::backend_unsupported,
         {}, "Linux backend cannot establish all requested guarantees");
+  }
+  if (cancellation && cancellation->cancellation_requested()) {
+    return pkgexec::execution_result::cancelled_before_start(
+        request, profile, *cancellation,
+        {pkgexec::execution_guarantee::cancellation},
+        "cancellation was requested before resource admission");
   }
 
   std::optional<detail::isolated_admission> isolation;
@@ -531,6 +594,12 @@ pkgexec::execution_result execute_backend(
         request, profile,
         pkgexec::execution_failure_kind::resource_admission_failed,
         {}, value.what());
+  }
+  if (cancellation && cancellation->cancellation_requested()) {
+    return pkgexec::execution_result::cancelled_before_start(
+        request, profile, *cancellation,
+        {pkgexec::execution_guarantee::cancellation},
+        "cancellation was requested before interpreter admission");
   }
 
   const auto* configured = find_interpreter(interpreters, request.interpreter());
@@ -571,17 +640,28 @@ pkgexec::execution_result execute_backend(
         pkgexec::execution_failure_kind::interpreter_unavailable,
         {}, value.what());
   }
+  if (cancellation && cancellation->cancellation_requested()) {
+    return pkgexec::execution_result::cancelled_before_start(
+        request, profile, *cancellation,
+        {pkgexec::execution_guarantee::cancellation},
+        "cancellation was requested before process creation");
+  }
 
   pipe_pair standard_output;
   pipe_pair standard_error;
   pipe_pair control;
+  pipe_pair ready;
+  pipe_pair start;
   try {
     standard_output = make_pipe();
     standard_error = make_pipe();
     control = make_pipe();
+    ready = make_pipe();
+    start = make_pipe();
     set_nonblocking(standard_output.read.get());
     set_nonblocking(standard_error.read.get());
     set_nonblocking(control.read.get());
+    set_nonblocking(ready.read.get());
   } catch (const std::exception& value) {
     return pkgexec::execution_result::failed_before_start(
         request, profile, pkgexec::execution_failure_kind::process_start_failed,
@@ -622,34 +702,195 @@ pkgexec::execution_result execute_backend(
     standard_output.read.reset();
     standard_error.read.reset();
     control.read.reset();
+    ready.read.reset();
+    start.write.reset();
     child_main(child_configuration_value, standard_output, standard_error,
-               control);
+               control, ready, start);
   }
 
   standard_output.write.reset();
   standard_error.write.reset();
   control.write.reset();
+  ready.write.reset();
+  start.read.reset();
   interpreter_fd.reset();
-  (void)::setpgid(child, child);
+  unique_fd pidfd;
+  if (cancellation) {
+    pidfd.reset(detail::open_pidfd(child));
+    if (!pidfd) {
+      const int saved = errno;
+      start.write.reset();
+      (void)::kill(child, SIGKILL);
+      while (::waitpid(child, nullptr, 0) < 0 && errno == EINTR) {
+      }
+      const bool mount_cleaned = !isolation || isolation->verify_parent_cleanup();
+      std::string diagnostic = detail::errno_message("pidfd_open", saved);
+      if (!mount_cleaned) {
+        diagnostic += "; parent isolation scratch cleanup failed";
+      }
+      return pkgexec::execution_result::failed_before_start(
+          request, profile,
+          pkgexec::execution_failure_kind::process_start_failed,
+          {}, std::move(diagnostic));
+    }
+  }
 
   std::string output_material;
   std::string error_material;
   std::array<unsigned char, sizeof(child_error)> control_bytes{};
   std::size_t control_size = 0;
   bool capture_failed = false;
+  bool ready_seen = false;
+  bool start_released = false;
+  bool exec_confirmed = false;
+  bool child_exited = false;
   bool child_reaped = false;
-  bool group_cleaned = false;
-  int status = 0;
+  siginfo_t child_information{};
 
-  while (!child_reaped || standard_output.read || standard_error.read || control.read) {
-    std::array<pollfd, 3> descriptors{{
+  bool cancellation_observed = false;
+  bool cancellation_before_start = false;
+  bool cancellation_signal_attempted = false;
+  bool cancellation_signal_delivered = false;
+  bool forced_signal_sent = false;
+  auto cancellation_deadline = std::chrono::steady_clock::time_point::max();
+
+  bool cleanup_started = false;
+  bool cleanup_complete = false;
+  bool cleanup_failed = false;
+  auto cleanup_deadline = std::chrono::steady_clock::time_point::max();
+
+  const auto observe_cancellation = [&]() {
+    if (!cancellation || cancellation_observed || child_exited ||
+        !cancellation->cancellation_requested()) {
+      return;
+    }
+    cancellation_observed = true;
+    cancellation_before_start = !start_released;
+    if (cancellation_before_start) {
+      start.write.reset();
+    }
+  };
+
+  const auto send_cancellation_signal = [&]() {
+    if (!cancellation_observed || cancellation_signal_attempted ||
+        (start_released && !exec_confirmed)) {
+      return;
+    }
+    const auto signal_result = detail::signal_process_group_members(
+        child, child, pidfd.get(), SIGTERM);
+    cancellation_signal_attempted = true;
+    cancellation_signal_delivered = signal_result.leader_signaled;
+    if (!signal_result.complete) {
+      cleanup_failed = true;
+    }
+    cancellation_deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(
+            *request.cancellation().grace_period_milliseconds());
+  };
+
+  while (!child_reaped || standard_output.read || standard_error.read ||
+         control.read || ready.read) {
+    if (!child_exited) {
+      child_exited = observe_child_exit(child, pidfd.get(), child_information);
+    }
+    observe_cancellation();
+
+    if (ready_seen && !start_released && !cancellation_observed) {
+      observe_cancellation();
+      if (!cancellation_observed) {
+        if (!write_start(start.write)) {
+          start.write.reset();
+        } else {
+          start_released = true;
+        }
+      }
+    }
+    send_cancellation_signal();
+
+    const auto now = std::chrono::steady_clock::now();
+    if (cancellation_signal_attempted && !forced_signal_sent &&
+        now >= cancellation_deadline && !cleanup_complete) {
+      const auto signal_result = detail::signal_process_group_members(
+          child, child, pidfd.get(), SIGKILL);
+      if (!signal_result.complete) {
+        cleanup_failed = true;
+      }
+      forced_signal_sent = true;
+      cleanup_deadline = now + std::chrono::seconds(1);
+    }
+
+    if (child_exited && cancellation && !cleanup_started) {
+      cleanup_started = true;
+      if (!cancellation_signal_attempted) {
+        const auto signal_result = detail::signal_process_group_members(
+            child, child, pidfd.get(), SIGTERM);
+        if (!signal_result.complete) {
+          cleanup_failed = true;
+        }
+        cleanup_deadline = now + std::chrono::milliseconds(200);
+      } else if (!forced_signal_sent) {
+        cleanup_deadline = cancellation_deadline;
+      }
+    }
+
+    if (child_exited && cancellation && cleanup_started && !cleanup_complete) {
+      if (forced_signal_sent) {
+        const auto signal_result = detail::signal_process_group_members(
+            child, child, pidfd.get(), SIGKILL);
+        if (!signal_result.complete) {
+          cleanup_failed = true;
+        }
+      }
+      if (detail::wait_process_group_members_gone(
+              child, child, std::chrono::milliseconds(0))) {
+        cleanup_complete = true;
+      } else if (now >= cleanup_deadline) {
+        if (!forced_signal_sent) {
+          const auto signal_result = detail::signal_process_group_members(
+              child, child, pidfd.get(), SIGKILL);
+          if (!signal_result.complete) {
+            cleanup_failed = true;
+          }
+          forced_signal_sent = true;
+          cleanup_deadline = now + std::chrono::seconds(1);
+        } else {
+          const auto signal_result = detail::signal_process_group_members(
+              child, child, pidfd.get(), SIGKILL);
+          if (!signal_result.complete) {
+            cleanup_failed = true;
+          }
+          cleanup_failed = true;
+          cleanup_complete = true;
+        }
+      }
+    }
+
+    if (child_exited && cancellation && cleanup_complete && !child_reaped) {
+      int ignored = 0;
+      while (::waitpid(child, &ignored, 0) < 0 && errno == EINTR) {
+      }
+      child_reaped = true;
+    }
+    if (child_exited && !cancellation && !child_reaped) {
+      int ignored = 0;
+      while (::waitpid(child, &ignored, 0) < 0 && errno == EINTR) {
+      }
+      child_reaped = true;
+      cleanup_complete = cleanup_group(child);
+      cleanup_failed = !cleanup_complete;
+    }
+
+    std::array<pollfd, 5> descriptors{{
         {standard_output.read.get(), POLLIN | POLLHUP | POLLERR, 0},
         {standard_error.read.get(), POLLIN | POLLHUP | POLLERR, 0},
         {control.read.get(), POLLIN | POLLHUP | POLLERR, 0},
+        {ready.read.get(), POLLIN | POLLHUP | POLLERR, 0},
+        {pidfd.get(), POLLIN | POLLHUP | POLLERR, 0},
     }};
-    (void)::poll(descriptors.data(), descriptors.size(), 50);
+    (void)::poll(descriptors.data(), descriptors.size(), 10);
     drain_fd(standard_output.read, output_material, capture_failed);
     drain_fd(standard_error.read, error_material, capture_failed);
+
     while (control.read) {
       const ssize_t count = ::read(
           control.read.get(), control_bytes.data() + control_size,
@@ -663,6 +904,9 @@ pkgexec::execution_result execute_backend(
       }
       if (count == 0) {
         control.read.reset();
+        if (control_size == 0U && start_released) {
+          exec_confirmed = true;
+        }
       } else if (errno == EINTR) {
         continue;
       } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -670,26 +914,35 @@ pkgexec::execution_result execute_backend(
       }
       break;
     }
-    if (!child_reaped) {
-      const pid_t waited = ::waitpid(child, &status, WNOHANG);
-      if (waited == child) {
-        child_reaped = true;
-        group_cleaned = cleanup_group(child);
-      } else if (waited < 0 && errno != EINTR) {
-        child_reaped = true;
-        group_cleaned = false;
+
+    while (ready.read) {
+      unsigned char byte = 0;
+      const ssize_t count = ::read(ready.read.get(), &byte, 1);
+      if (count > 0) {
+        if (byte == 1) {
+          ready_seen = true;
+        }
+        continue;
       }
+      if (count == 0) {
+        ready.read.reset();
+      } else if (errno == EINTR) {
+        continue;
+      } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+        ready.read.reset();
+      }
+      break;
+    }
+
+    if (child_reaped && !standard_output.read && !standard_error.read &&
+        !control.read && !ready.read) {
+      break;
     }
   }
 
-  if (!child_reaped) {
-    while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
-    }
-    child_reaped = true;
-    group_cleaned = cleanup_group(child);
-  }
   const bool mount_cleaned = !isolation || isolation->verify_parent_cleanup();
-  const bool cleanup_verified = group_cleaned && mount_cleaned;
+  const bool cleanup_verified = cleanup_complete && !cleanup_failed &&
+                                mount_cleaned;
 
   if (control_size != 0U) {
     child_error failure{};
@@ -706,6 +959,29 @@ pkgexec::execution_result execute_backend(
     return pkgexec::execution_result::failed_before_start(
         request, profile, pkgexec::execution_failure_kind::process_start_failed,
         {}, "truncated child setup failure record");
+  }
+
+  if (cancellation_observed && cancellation_before_start) {
+    if (!cleanup_verified) {
+      return pkgexec::execution_result::failed_before_start(
+          request, profile,
+          pkgexec::execution_failure_kind::isolation_setup_failed,
+          {}, "pre-start cancellation cleanup could not be verified");
+    }
+    return pkgexec::execution_result::cancelled_before_start(
+        request, profile, *cancellation,
+        {pkgexec::execution_guarantee::cancellation},
+        "cancellation was requested before the final program-start gate");
+  }
+  if (!exec_confirmed) {
+    return pkgexec::execution_result::failed_before_start(
+        request, profile,
+        cleanup_verified
+            ? pkgexec::execution_failure_kind::process_start_failed
+            : pkgexec::execution_failure_kind::isolation_setup_failed,
+        {}, cleanup_verified
+            ? "child terminated before descriptor execution was confirmed"
+            : "pre-start termination cleanup could not be verified");
   }
 
   std::optional<pkgexec::stream_capture> output_capture;
@@ -731,16 +1007,10 @@ pkgexec::execution_result execute_backend(
         established, pkgexec::execution_guarantee::cleanup_verified);
   }
 
+  const auto observed_termination = termination_from_siginfo(child_information);
   if (capture_failed) {
     return pkgexec::execution_result::failed_after_start(
-        request, profile, configured->identity(),
-        WIFSIGNALED(status)
-            ? pkgexec::process_termination::signaled(
-                  static_cast<std::uint32_t>(WTERMSIG(status)))
-            : pkgexec::process_termination::exited(
-                  WIFEXITED(status)
-                      ? static_cast<std::uint32_t>(WEXITSTATUS(status))
-                      : 1U),
+        request, profile, configured->identity(), observed_termination,
         std::move(output_capture), std::move(error_capture),
         std::move(established),
         cleanup_verified ? pkgexec::cleanup_outcome::verified
@@ -750,56 +1020,56 @@ pkgexec::execution_result execute_backend(
   }
   if (!cleanup_verified) {
     return pkgexec::execution_result::failed_after_start(
-        request, profile, configured->identity(),
-        WIFSIGNALED(status)
-            ? pkgexec::process_termination::signaled(
-                  static_cast<std::uint32_t>(WTERMSIG(status)))
-            : pkgexec::process_termination::exited(
-                  WIFEXITED(status)
-                      ? static_cast<std::uint32_t>(WEXITSTATUS(status))
-                      : 1U),
+        request, profile, configured->identity(), observed_termination,
         std::move(output_capture), std::move(error_capture),
         std::move(established), pkgexec::cleanup_outcome::failed,
         pkgexec::execution_failure_kind::cleanup_failed,
         "process-group or mount cleanup could not be verified");
   }
-  if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+  if (cancellation_signal_delivered) {
+    return pkgexec::execution_result::cancelled_after_start(
+        request, profile, *cancellation, configured->identity(),
+        std::move(output_capture), std::move(error_capture),
+        std::move(established), pkgexec::cleanup_outcome::verified,
+        forced_signal_sent
+            ? "cancellation required forced process-group termination"
+            : "cancellation completed during the graceful period");
+  }
+  if (child_information.si_code == CLD_EXITED &&
+      child_information.si_status == 0) {
     return pkgexec::execution_result::succeeded(
         request, profile, configured->identity(), std::move(output_capture),
         std::move(error_capture), std::move(established));
   }
-  if (WIFEXITED(status)) {
+  if (child_information.si_code == CLD_EXITED) {
     return pkgexec::execution_result::failed_after_start(
-        request, profile, configured->identity(),
-        pkgexec::process_termination::exited(
-            static_cast<std::uint32_t>(WEXITSTATUS(status))),
+        request, profile, configured->identity(), observed_termination,
         std::move(output_capture), std::move(error_capture),
         std::move(established), pkgexec::cleanup_outcome::verified,
         pkgexec::execution_failure_kind::program_exited_nonzero);
   }
-  if (WIFSIGNALED(status)) {
-    return pkgexec::execution_result::failed_after_start(
-        request, profile, configured->identity(),
-        pkgexec::process_termination::signaled(
-            static_cast<std::uint32_t>(WTERMSIG(status))),
-        std::move(output_capture), std::move(error_capture),
-        std::move(established), pkgexec::cleanup_outcome::verified,
-        pkgexec::execution_failure_kind::program_terminated_by_signal);
-  }
   return pkgexec::execution_result::failed_after_start(
-      request, profile, configured->identity(),
-      pkgexec::process_termination::exited(1), std::move(output_capture),
-      std::move(error_capture), std::move(established),
-      pkgexec::cleanup_outcome::verified,
-      pkgexec::execution_failure_kind::program_exited_nonzero,
-      "unrecognized wait status");
+      request, profile, configured->identity(), observed_termination,
+      std::move(output_capture), std::move(error_capture),
+      std::move(established), pkgexec::cleanup_outcome::verified,
+      pkgexec::execution_failure_kind::program_terminated_by_signal);
 }
 
-pkgexec::execution_result host_supervisor_backend::execute(
+pkgexec::execution_result host_supervisor_backend::execute_uncontrolled(
     const pkgexec::execution_request& request,
     const pkgexec::execution_resources& resources)
 {
-  return execute_backend(report_, interpreters_, request, resources, false);
+  return execute_backend(report_, interpreters_, request, resources, false,
+                         nullptr);
+}
+
+pkgexec::execution_result host_supervisor_backend::execute_controlled(
+    const pkgexec::execution_request& request,
+    const pkgexec::execution_resources& resources,
+    const pkgexec::cancellation_token& cancellation)
+{
+  return execute_backend(report_, interpreters_, request, resources, false,
+                         &cancellation);
 }
 
 isolated_backend::isolated_backend(
@@ -832,11 +1102,21 @@ const capability_report& isolated_backend::report() const noexcept
 pkgexec::backend_capability_profile isolated_backend::capabilities() const
 { return report_.profile(); }
 
-pkgexec::execution_result isolated_backend::execute(
+pkgexec::execution_result isolated_backend::execute_uncontrolled(
     const pkgexec::execution_request& request,
     const pkgexec::execution_resources& resources)
 {
-  return execute_backend(report_, interpreters_, request, resources, true);
+  return execute_backend(report_, interpreters_, request, resources, true,
+                         nullptr);
+}
+
+pkgexec::execution_result isolated_backend::execute_controlled(
+    const pkgexec::execution_request& request,
+    const pkgexec::execution_resources& resources,
+    const pkgexec::cancellation_token& cancellation)
+{
+  return execute_backend(report_, interpreters_, request, resources, true,
+                         &cancellation);
 }
 
 } // namespace pkgexec_linux

@@ -3,15 +3,25 @@
 #include "process_control.h"
 
 #include <cerrno>
+#include <chrono>
 #include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <string>
+#include <thread>
+#include <vector>
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <linux/audit.h>
 #include <linux/capability.h>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
+#include <poll.h>
 #include <sched.h>
 #include <signal.h>
 #include <stddef.h>
@@ -25,6 +35,7 @@
 #define CLONE_NEWTIME 0x00000080
 #endif
 
+
 namespace pkgexec_linux::detail {
 namespace {
 
@@ -33,6 +44,97 @@ constexpr bool supported_architecture = false;
 #else
 constexpr bool supported_architecture = true;
 #endif
+constexpr idtype_t pidfd_wait_type = static_cast<idtype_t>(3);
+
+bool numeric_name(const char* value) noexcept
+{
+  if (!value || *value == '\0') {
+    return false;
+  }
+  for (const char* cursor = value; *cursor != '\0'; ++cursor) {
+    if (*cursor < '0' || *cursor > '9') {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool process_group_of(pid_t process, pid_t& group) noexcept
+{
+  try {
+    std::ifstream stream("/proc/" + std::to_string(process) + "/stat");
+    std::string line;
+    if (!stream || !std::getline(stream, line)) {
+      return false;
+    }
+    const auto close = line.rfind(')');
+    if (close == std::string::npos || close + 2U >= line.size()) {
+      return false;
+    }
+    char state = '\0';
+    long parent = 0;
+    long parsed_group = 0;
+    if (std::sscanf(line.c_str() + close + 2U, "%c %ld %ld",
+                    &state, &parent, &parsed_group) != 3 ||
+        parsed_group <= 0 || parsed_group > INT_MAX) {
+      return false;
+    }
+    (void)state;
+    (void)parent;
+    group = static_cast<pid_t>(parsed_group);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool process_ids(std::vector<pid_t>& result) noexcept
+{
+  result.clear();
+  DIR* directory = ::opendir("/proc");
+  if (!directory) {
+    return false;
+  }
+  try {
+    errno = 0;
+    while (dirent* entry = ::readdir(directory)) {
+      if (!numeric_name(entry->d_name)) {
+        continue;
+      }
+      char* end = nullptr;
+      errno = 0;
+      const long value = std::strtol(entry->d_name, &end, 10);
+      if (errno == 0 && end && *end == '\0' &&
+          value > 0 && value <= INT_MAX) {
+        result.push_back(static_cast<pid_t>(value));
+      }
+    }
+    const int saved = errno;
+    const bool okay = ::closedir(directory) == 0 && saved == 0;
+    return okay;
+  } catch (...) {
+    (void)::closedir(directory);
+    result.clear();
+    return false;
+  }
+}
+
+bool pidfd_exited(int pidfd, int timeout_milliseconds) noexcept
+{
+  pollfd descriptor{pidfd, POLLIN, 0};
+  for (;;) {
+    const int result = ::poll(&descriptor, 1, timeout_milliseconds);
+    if (result > 0) {
+      return (descriptor.revents & (POLLIN | POLLHUP | POLLERR)) != 0;
+    }
+    if (result == 0) {
+      return false;
+    }
+    if (errno != EINTR) {
+      return false;
+    }
+  }
+}
 
 } // namespace
 
@@ -163,18 +265,178 @@ bool probe_close_range() noexcept
 #endif
 }
 
-bool probe_pidfd() noexcept
+int open_pidfd(pid_t process) noexcept
 {
 #ifdef __NR_pidfd_open
-  const int fd = static_cast<int>(::syscall(__NR_pidfd_open, ::getpid(), 0U));
+  return static_cast<int>(::syscall(__NR_pidfd_open, process, 0U));
+#else
+  (void)process;
+  errno = ENOSYS;
+  return -1;
+#endif
+}
+
+bool send_pidfd_signal(int pidfd, int signal) noexcept
+{
+#ifdef __NR_pidfd_send_signal
+  return ::syscall(__NR_pidfd_send_signal, pidfd, signal, nullptr, 0U) == 0;
+#else
+  (void)pidfd;
+  (void)signal;
+  errno = ENOSYS;
+  return false;
+#endif
+}
+
+process_group_signal_result signal_process_group_members(
+    pid_t group, pid_t leader, int leader_pidfd, int signal) noexcept
+{
+  bool complete = true;
+  std::vector<pid_t> processes;
+  if (!process_ids(processes)) {
+    complete = false;
+  } else {
+    for (const pid_t process : processes) {
+      if (process == leader) {
+        continue;
+      }
+      pid_t observed_group = 0;
+      if (!process_group_of(process, observed_group) ||
+          observed_group != group) {
+        continue;
+      }
+      const int pidfd = open_pidfd(process);
+      if (pidfd < 0) {
+        if (errno != ESRCH) {
+          complete = false;
+        }
+        continue;
+      }
+      pid_t confirmed_group = 0;
+      const bool member = process_group_of(process, confirmed_group) &&
+                          confirmed_group == group;
+      if (member && !send_pidfd_signal(pidfd, signal) && errno != ESRCH) {
+        complete = false;
+      }
+      ::close(pidfd);
+    }
+  }
+
+  bool leader_signaled = send_pidfd_signal(leader_pidfd, signal);
+  if (!leader_signaled && errno != ESRCH) {
+    complete = false;
+  }
+  return {complete, leader_signaled};
+}
+
+bool wait_process_group_members_gone(
+    pid_t group, pid_t leader, std::chrono::milliseconds timeout) noexcept
+{
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  for (;;) {
+    std::vector<pid_t> processes;
+    if (!process_ids(processes)) {
+      return false;
+    }
+    bool found = false;
+    for (const pid_t process : processes) {
+      if (process == leader) {
+        continue;
+      }
+      pid_t member_group = 0;
+      if (process_group_of(process, member_group) && member_group == group) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      return true;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) {
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
+
+bool probe_pidfd() noexcept
+{
+  const int fd = open_pidfd(::getpid());
   if (fd < 0) {
     return errno != ENOSYS && errno != EINVAL;
   }
   ::close(fd);
   return true;
-#else
-  return false;
-#endif
+}
+
+bool probe_pidfd_cancellation() noexcept
+{
+  int ready[2] = {-1, -1};
+  if (::pipe2(ready, O_CLOEXEC) != 0) {
+    return false;
+  }
+  const pid_t child = ::fork();
+  if (child < 0) {
+    ::close(ready[0]);
+    ::close(ready[1]);
+    return false;
+  }
+  if (child == 0) {
+    ::close(ready[0]);
+    if (::setsid() < 0) {
+      _exit(2);
+    }
+    const pid_t descendant = ::fork();
+    if (descendant < 0) {
+      _exit(3);
+    }
+    if (descendant == 0) {
+      for (;;) {
+        ::pause();
+      }
+    }
+    const unsigned char byte = 1;
+    (void)::write(ready[1], &byte, 1);
+    for (;;) {
+      ::pause();
+    }
+  }
+
+  ::close(ready[1]);
+  unsigned char byte = 0;
+  ssize_t count = -1;
+  do {
+    count = ::read(ready[0], &byte, 1);
+  } while (count < 0 && errno == EINTR);
+  ::close(ready[0]);
+  if (count != 1) {
+    (void)::kill(-child, SIGKILL);
+    (void)::waitpid(child, nullptr, 0);
+    return false;
+  }
+
+  const int pidfd = open_pidfd(child);
+  if (pidfd < 0) {
+    (void)::kill(-child, SIGKILL);
+    (void)::waitpid(child, nullptr, 0);
+    return false;
+  }
+  const auto signal_result = signal_process_group_members(
+      child, child, pidfd, SIGTERM);
+  const bool exited = pidfd_exited(pidfd, 1000);
+  const bool members_gone = wait_process_group_members_gone(
+      child, child, std::chrono::milliseconds(1000));
+  siginfo_t information{};
+  const bool observed = ::waitid(pidfd_wait_type, static_cast<id_t>(pidfd),
+                                 &information, WEXITED | WNOWAIT) == 0;
+  int status = 0;
+  while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
+  }
+  ::close(pidfd);
+  return signal_result.complete && signal_result.leader_signaled &&
+         exited && members_gone && observed &&
+         information.si_code == CLD_KILLED &&
+         information.si_status == SIGTERM;
 }
 
 bool drop_process_capabilities() noexcept

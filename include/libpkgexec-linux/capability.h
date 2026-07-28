@@ -26,6 +26,7 @@ enum class capability_kind {
   descriptor_execution,
   close_range,
   pidfd,
+  pidfd_cancellation,
   mount_namespace,
   private_mount_propagation,
   openat2,
