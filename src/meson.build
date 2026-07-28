@@ -13,6 +13,7 @@ libpkgexec_linux = library(
     'mount_isolation.cpp',
     'network_isolation.cpp',
     'process_control.cpp',
+    'resource_limits.cpp',
     'support.cpp',
   ],
   include_directories: [public_inc, private_inc],
@@ -44,7 +45,7 @@ pkgconf.generate(
   filebase: 'libpkgexec-linux',
   description: 'Linux execution backends for libpkgexec',
   subdirs: '.',
-  requires: ['libpkgexec >= 1.1.0'],
+  requires: ['libpkgexec >= 1.2.0'],
   requires_private: ['libcrypto'],
   libraries_private: [threads_dep],
 )

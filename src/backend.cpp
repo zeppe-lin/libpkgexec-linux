@@ -7,6 +7,7 @@
 #include "mount_isolation.h"
 #include "network_isolation.h"
 #include "process_control.h"
+#include "resource_limits.h"
 #include "support.h"
 
 #include <algorithm>
@@ -161,9 +162,6 @@ std::string validate_host_request_shape(
   if (request.environment().network() != pkgexec::network_policy::allowed) {
     return "host supervisor does not isolate networking";
   }
-  if (!request.limits().empty()) {
-    return "host supervisor does not classify resource limits";
-  }
   if (!request.credentials().no_new_privileges()) {
     return "host supervisor requires no-new-privileges containment";
   }
@@ -206,9 +204,6 @@ std::string validate_host_request_shape(
 std::string validate_isolated_request_shape(
     const pkgexec::execution_request& request)
 {
-  if (!request.limits().empty()) {
-    return "isolated filesystem backend does not classify resource limits";
-  }
   if (!request.credentials().no_new_privileges()) {
     return "isolated filesystem backend requires no-new-privileges containment";
   }
@@ -228,6 +223,7 @@ enum class child_stage : std::uint32_t {
   working_directory,
   capability_drop,
   containment,
+  resource_limits,
   execute,
 };
 
@@ -264,6 +260,7 @@ struct child_configuration final {
   const char* working_directory;
   const detail::isolated_admission* isolation;
   pkgexec::network_policy network;
+  const pkgexec::resource_limits* limits;
   int interpreter_fd;
   char* const* arguments;
   char* const* environment;
@@ -345,7 +342,15 @@ struct child_configuration final {
     report_child_error(control_fd, child_stage::capability_drop, errno);
     _exit(125);
   }
-  if (!detail::install_process_group_containment()) {
+  detail::resource_limit_setup_failure limit_failure{};
+  if (!detail::setup_resource_limits(*configuration.limits, limit_failure)) {
+    report_child_error(control_fd, child_stage::resource_limits,
+                       limit_failure.error,
+                       static_cast<std::uint32_t>(limit_failure.stage));
+    _exit(125);
+  }
+  if (!detail::install_process_group_containment(
+          !configuration.limits->empty())) {
     report_child_error(control_fd, child_stage::containment, errno);
     _exit(125);
   }
@@ -432,6 +437,7 @@ pkgexec::execution_failure_kind child_failure_kind(const child_error& failure)
 {
   switch (failure.stage) {
     case child_stage::working_directory:
+    case child_stage::resource_limits:
       return pkgexec::execution_failure_kind::resource_admission_failed;
     case child_stage::mount_isolation:
     case child_stage::network_isolation:
@@ -466,6 +472,10 @@ std::string child_failure_diagnostic(const child_error& failure)
     case child_stage::working_directory: operation = "chdir"; break;
     case child_stage::capability_drop: operation = "capability drop"; break;
     case child_stage::containment: operation = "seccomp containment"; break;
+    case child_stage::resource_limits:
+      operation = detail::resource_limit_stage_name(
+          static_cast<detail::resource_limit_setup_stage>(failure.detail)).data();
+      break;
     case child_stage::execute: operation = "execve"; break;
   }
   return detail::errno_message(operation, failure.value);
@@ -688,7 +698,7 @@ pkgexec::execution_result execute_backend(
       request.environment().standard_error(),
       request.environment().file_creation_mask(),
       working_directory.c_str(), isolation ? &*isolation : nullptr,
-      request.environment().network(), interpreter_fd.get(),
+      request.environment().network(), &request.limits(), interpreter_fd.get(),
       arguments.data(), environment_pointers.data(),
   };
 

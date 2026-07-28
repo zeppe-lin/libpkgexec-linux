@@ -140,6 +140,11 @@ bool pidfd_exited(int pidfd, int timeout_milliseconds) noexcept
 
 bool install_process_group_containment() noexcept
 {
+  return install_process_group_containment(false);
+}
+
+bool install_process_group_containment(bool seal_resource_limits) noexcept
+{
   if (!supported_architecture) {
     return false;
   }
@@ -216,6 +221,24 @@ bool install_process_group_containment() noexcept
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mount_setattr, 0, 1),
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
 #endif
+#ifdef __NR_setrlimit
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_setrlimit, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K,
+               seal_resource_limits ? SECCOMP_RET_ERRNO | EPERM
+                                    : SECCOMP_RET_ALLOW),
+#endif
+#ifdef __NR_prlimit64
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_prlimit64, 0, 5),
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+               static_cast<unsigned int>(offsetof(seccomp_data, args[2]))),
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 0, 2),
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
+               static_cast<unsigned int>(offsetof(seccomp_data, args[2]) + 4U)),
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0U, 1, 0),
+      BPF_STMT(BPF_RET | BPF_K,
+               seal_resource_limits ? SECCOMP_RET_ERRNO | EPERM
+                                    : SECCOMP_RET_ALLOW),
+#endif
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
   };
   const sock_fprog program{
@@ -235,7 +258,7 @@ bool probe_process_group_containment() noexcept
     return false;
   }
   if (child == 0) {
-    _exit(install_process_group_containment() ? 0 : 1);
+    _exit(install_process_group_containment(false) ? 0 : 1);
   }
   int status = 0;
   while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {

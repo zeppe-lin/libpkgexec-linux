@@ -34,7 +34,7 @@ threads_dep = dependency('threads')
 libcrypto_dep = dependency('libcrypto', required: true, static: want_static)
 libpkgexec_dep = dependency(
   'libpkgexec',
-  version: '>=1.1.0',
+  version: '>=1.2.0',
   required: true,
   static: want_static,
   fallback: ['libpkgexec', 'libpkgexec_dep'],

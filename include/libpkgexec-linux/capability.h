@@ -41,6 +41,9 @@ enum class capability_kind {
   landlock,
   cgroup_v2,
   loopback_configuration,
+  address_space_limit,
+  file_size_limit,
+  open_files_limit,
 };
 
 enum class capability_state {

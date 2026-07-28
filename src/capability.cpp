@@ -7,6 +7,7 @@
 #include "mount_isolation.h"
 #include "network_isolation.h"
 #include "process_control.h"
+#include "resource_limits.h"
 #include "support.h"
 
 #include <algorithm>
@@ -79,6 +80,67 @@ capability_state cgroup_state()
                : capability_state::policy_restricted;
 }
 
+struct resource_limit_capabilities final {
+  bool address_space;
+  bool file_size;
+  bool open_files;
+};
+
+resource_limit_capabilities probe_resource_limits() noexcept
+{
+  return {
+      detail::probe_address_space_limit(),
+      detail::probe_file_size_limit(),
+      detail::probe_open_files_limit(),
+  };
+}
+
+void add_resource_limit_guarantees(
+    std::vector<pkgexec::execution_guarantee>& guarantees,
+    const resource_limit_capabilities& limits)
+{
+  if (!limits.address_space && !limits.file_size && !limits.open_files) {
+    return;
+  }
+  guarantees.push_back(pkgexec::execution_guarantee::resource_limits);
+  if (limits.address_space) {
+    guarantees.push_back(pkgexec::execution_guarantee::address_space_limit);
+  }
+  if (limits.file_size) {
+    guarantees.push_back(pkgexec::execution_guarantee::file_size_limit);
+  }
+  if (limits.open_files) {
+    guarantees.push_back(pkgexec::execution_guarantee::open_files_limit);
+  }
+}
+
+void add_resource_limit_observations(
+    std::vector<capability_observation>& observations,
+    const resource_limit_capabilities& limits)
+{
+  observations.emplace_back(
+      capability_kind::address_space_limit,
+      limits.address_space ? capability_state::available
+                           : capability_state::unavailable,
+      limits.address_space
+          ? "exact RLIMIT_AS realization and mutation sealing are available"
+          : "exact RLIMIT_AS realization could not be proved");
+  observations.emplace_back(
+      capability_kind::file_size_limit,
+      limits.file_size ? capability_state::available
+                       : capability_state::unavailable,
+      limits.file_size
+          ? "exact RLIMIT_FSIZE realization and mutation sealing are available"
+          : "exact RLIMIT_FSIZE realization could not be proved");
+  observations.emplace_back(
+      capability_kind::open_files_limit,
+      limits.open_files ? capability_state::available
+                        : capability_state::unavailable,
+      limits.open_files
+          ? "exact RLIMIT_NOFILE realization and mutation sealing are available"
+          : "exact RLIMIT_NOFILE realization could not be proved");
+}
+
 } // namespace
 
 std::string_view to_string(capability_kind value) noexcept
@@ -110,6 +172,9 @@ std::string_view to_string(capability_kind value) noexcept
     case capability_kind::landlock: return "landlock";
     case capability_kind::cgroup_v2: return "cgroup-v2";
     case capability_kind::loopback_configuration: return "loopback-configuration";
+    case capability_kind::address_space_limit: return "address-space-limit";
+    case capability_kind::file_size_limit: return "file-size-limit";
+    case capability_kind::open_files_limit: return "open-files-limit";
   }
   return "unknown";
 }
@@ -149,6 +214,7 @@ capability_report capability_report::probe()
   const bool descriptor_execution = detail::probe_descriptor_execution();
   const bool pidfd_cancellation = containment &&
       detail::probe_pidfd_cancellation();
+  const auto resource_limits = probe_resource_limits();
   std::vector<pkgexec::execution_guarantee> guarantees{
       pkgexec::execution_guarantee::closed_environment,
       pkgexec::execution_guarantee::root_view,
@@ -166,6 +232,7 @@ capability_report capability_report::probe()
   if (pidfd_cancellation) {
     guarantees.push_back(pkgexec::execution_guarantee::cancellation);
   }
+  add_resource_limit_guarantees(guarantees, resource_limits);
   std::vector<capability_observation> observations{
       {capability_kind::process_supervision, capability_state::available},
       {capability_kind::closed_environment, capability_state::available},
@@ -220,6 +287,7 @@ capability_report capability_report::probe()
       {capability_kind::loopback_configuration, capability_state::unavailable,
        "host supervisor creates no private loopback view"},
   };
+  add_resource_limit_observations(observations, resource_limits);
   return capability_report(
       pkgexec::backend_capability_profile::seal(
           backend_identity("host-supervisor"), std::move(guarantees)),
@@ -232,6 +300,7 @@ capability_report capability_report::probe_isolated()
   const bool descriptor_execution = detail::probe_descriptor_execution();
   const bool pidfd_cancellation = containment &&
       detail::probe_pidfd_cancellation();
+  const auto resource_limits = probe_resource_limits();
   const bool capability_drop = detail::probe_capability_drop();
   int mount_error = 0;
   const bool filesystem = detail::probe_isolated_filesystem(mount_error);
@@ -275,6 +344,7 @@ capability_report capability_report::probe_isolated()
   if (pidfd_cancellation) {
     guarantees.push_back(pkgexec::execution_guarantee::cancellation);
   }
+  add_resource_limit_guarantees(guarantees, resource_limits);
   if (containment && capability_drop && denied_network) {
     guarantees.push_back(pkgexec::execution_guarantee::network_denied);
   }
@@ -347,6 +417,7 @@ capability_report capability_report::probe_isolated()
        network_state(loopback_network, loopback_failure),
        network_diagnostic(loopback_network, loopback_failure)},
   };
+  add_resource_limit_observations(observations, resource_limits);
   return capability_report(
       pkgexec::backend_capability_profile::seal(
           backend_identity("isolated-filesystem"), std::move(guarantees)),

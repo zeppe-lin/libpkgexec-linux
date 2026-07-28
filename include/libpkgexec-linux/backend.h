@@ -14,13 +14,14 @@
 
 namespace pkgexec_linux {
 
-/*! \brief Linux v0 host supervisor for already-visible writable resources.
+/*! \brief Linux host supervisor for already-visible writable resources.
  *
  *  The backend does not create namespaces or mounts. It accepts only the
- *  current root view, current credentials, allowed networking, writable
- *  resources already present at their logical paths and empty resource limits.
- *  Request-bound graceful-then-forced cancellation is admitted when the pidfd
- *  cancellation capability is available.
+ *  current root view, current credentials, allowed networking, and writable
+ *  resources already present at their logical paths. Exact address-space,
+ *  file-size, and open-files limits are admitted when their realization probes
+ *  succeed. Request-bound graceful-then-forced cancellation is admitted when
+ *  the pidfd cancellation capability is available.
  */
 class host_supervisor_backend final : public pkgexec::controlled_execution_backend {
 public:
@@ -44,16 +45,17 @@ private:
 };
 
 
-/*! \brief Linux v0.4 backend with private filesystem and network views.
+/*! \brief Linux v0.5 backend with private filesystem and network views.
  *
  *  The backend realizes the exact supplied root view in a private mount
  *  namespace, attaches each admitted directory at its logical path, and
  *  enforces read-only or writable access at the mount layer. Allowed networking
  *  preserves the caller's network namespace. Denied and loopback-only policy
  *  create private network namespaces. The backend currently admits only the
- *  supervisor's numeric credentials and empty resource limits. Request-bound
- *  graceful-then-forced cancellation is admitted when pidfd cancellation is
- *  available.
+ *  supervisor's numeric credentials. Exact address-space, file-size, and
+ *  open-files limits are admitted when their realization probes succeed.
+ *  Request-bound graceful-then-forced cancellation is admitted when pidfd
+ *  cancellation is available.
  */
 class isolated_backend final : public pkgexec::controlled_execution_backend {
 public:

@@ -9,6 +9,8 @@
 namespace pkgexec_linux::detail {
 
 [[nodiscard]] bool install_process_group_containment() noexcept;
+[[nodiscard]] bool install_process_group_containment(
+    bool seal_resource_limits) noexcept;
 [[nodiscard]] bool probe_process_group_containment() noexcept;
 [[nodiscard]] bool probe_descriptor_execution() noexcept;
 [[nodiscard]] bool probe_close_range() noexcept;
