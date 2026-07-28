@@ -1,5 +1,27 @@
 # History
 
+## libpkgexec-linux 0.4.0
+
+Adds truthful request-bound graceful-then-forced cancellation to both Linux
+backends through the `libpkgexec 1.1` controlled-execution contract. Each child
+establishes a private session before the final start gate. The supervisor keeps
+the leader unreaped, observes it through a pidfd, signals exact process-group
+members through pidfds, honors the sealed grace period, escalates to `SIGKILL`,
+and verifies descendant cleanup before sealing cancellation evidence.
+
+Capability reporting is proof-based. Cancellation is advertised only after an
+end-to-end probe creates a descendant-bearing private execution group, signals
+it through pidfds, observes the leader with `waitid(P_PIDFD)`, and proves that
+no descendant remains. A raw pidfd syscall result remains diagnostic only.
+Cancellation before the final gate is reported as not started; a naturally
+completed program is not reclassified as cancelled.
+
+The release raises the `libpkgexec` floor to 1.1.0 and advances the backend
+SONAME to 1 because the controlled backend transition changes the C++ ABI. It
+still
+does not add user or PID namespaces, Landlock, cgroups, arbitrary credential
+transitions, or resource limits.
+
 ## libpkgexec-linux 0.3.0
 
 Extends `isolated_backend` with exact Linux network-policy realization.

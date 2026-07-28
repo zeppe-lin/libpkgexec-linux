@@ -19,7 +19,7 @@ libpkgexec_linux = library(
   dependencies: [libpkgexec_dep, libcrypto_dep, threads_dep],
   install: true,
   version: meson.project_version(),
-  soversion: '0',
+  soversion: '1',
 )
 
 libpkgexec_linux_dep = declare_dependency(

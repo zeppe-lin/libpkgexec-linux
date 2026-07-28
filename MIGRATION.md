@@ -1,27 +1,39 @@
 # Migration
 
-`libpkgexec-linux 0.3.0` extends `isolated_backend` with denied and
-loopback-only network policies without changing the host supervisor or SONAME.
+`libpkgexec-linux 0.4.0` raises the `libpkgexec` floor to 1.1.0 and changes both
+backend classes to the additive `controlled_execution_backend` interface. The
+old directly callable backend `execute()` symbols are not retained. SONAME
+advances from 0 to 1, and consumers must be rebuilt against the 0.4 headers.
 
-An isolated request may now select:
+Requests with disabled cancellation continue to use:
 
-- `network_policy::allowed`, which preserves the caller's network namespace;
-- `network_policy::denied`, which creates a private network namespace with only
-  an administratively down loopback interface;
-- `network_policy::loopback_only`, which creates a private network namespace
-  and brings up only loopback.
+```
+backend.execute(request, resources)
+```
 
-Denied and loopback-only requests are admitted only when the current runner can
-realize and verify the exact view. A restricted runner receives
-`backend_unsupported` before program start. Do not retry the request with
-allowed networking.
+A graceful-then-forced request must create the request-bound control authority
+and use the token-bearing overload:
 
-The filesystem contract introduced in 0.2 is unchanged. Callers must still
-supply a dedicated root-view directory containing the exact interpreter and
-runtime closure. Every logical resource destination must exist inside the root,
-and host resource paths cannot overlap the root or each other.
+```
+auto source = pkgexec::cancellation_source::for_request(request);
+auto result = backend.execute(request, resources, source.token());
+```
 
-There is no reinterpretation of 0.2 evidence. Network guarantees enter 0.3
-evidence only for requests that selected and established the corresponding
-policy. User namespace, PID namespace, Landlock, cgroup, credential, limit, and
-cancellation guarantees remain absent.
+Calling the ordinary overload for a cancellation-enabled request remains a
+core contract error. Passing a token for another request is also rejected by
+`libpkgexec` before Linux realization.
+
+The cancellation guarantee is advertised only when the current runner passes
+the complete pidfd realization probe. An unsupported runner returns
+`backend_unsupported` before program start; callers must not retry the same
+request without cancellation.
+
+Cancellation before the backend's final start gate produces not-started
+cancelled evidence. After confirmed execution, the backend sends `SIGTERM`,
+waits the sealed grace period, and escalates to `SIGKILL`. The child and its
+descendants are confined to a private session and stable process group, and
+cleanup is verified before the leader is reaped.
+
+The private filesystem and network contracts from 0.2 and 0.3 are unchanged.
+User namespace, PID namespace, Landlock, cgroup, arbitrary credential, and
+resource-limit guarantees remain absent.
