@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zeppe-lin/libpkgexec
-          ref: 6ba4a6bba03a995b9bd2b23dddf65647784d2ece
+          ref: 9bc10195fa294a94c2d40d95ae4b2a8e9a834c0e
           path: subprojects/libpkgexec
       - run: sudo apt-get update && sudo apt-get install -y meson ninja-build scdoc libssl-dev
       - run: |

@@ -59,6 +59,30 @@ grep -q 'cancellation_requested' "$root/src/backend.cpp" ||
   fail 'call-scoped cancellation observation missing'
 ! grep -E '::sigaction\(|::signal\(' "$root/src/backend.cpp" >/dev/null ||
   fail 'ambient signal handler entered backend control'
+grep -q 'address_space_limit' "$root/include/libpkgexec-linux/capability.h" ||
+  fail 'address-space limit observation missing'
+grep -q 'file_size_limit' "$root/include/libpkgexec-linux/capability.h" ||
+  fail 'file-size limit observation missing'
+grep -q 'open_files_limit' "$root/include/libpkgexec-linux/capability.h" ||
+  fail 'open-files limit observation missing'
+grep -q 'setup_resource_limits' "$root/src/backend.cpp" ||
+  fail 'resource-limit realization is not wired into child setup'
+grep -q 'RLIMIT_AS' "$root/src/resource_limits.cpp" ||
+  fail 'address-space realization authority missing'
+grep -q 'RLIMIT_FSIZE' "$root/src/resource_limits.cpp" ||
+  fail 'file-size realization authority missing'
+grep -q 'RLIMIT_NOFILE' "$root/src/resource_limits.cpp" ||
+  fail 'open-files realization authority missing'
+grep -q 'requested{exact, exact}' "$root/src/resource_limits.cpp" ||
+  fail 'soft and hard limits are not sealed to the exact value'
+grep -q '__NR_setrlimit' "$root/src/process_control.cpp" ||
+  fail 'setrlimit mutation seal missing'
+grep -q '__NR_prlimit64' "$root/src/process_control.cpp" ||
+  fail 'prlimit mutation seal missing'
+! grep -E 'RLIMIT_CPU|RLIMIT_NPROC' "$root/src/resource_limits.cpp" >/dev/null ||
+  fail 'inexact CPU or per-UID process limits entered backend authority'
+! grep -R -E '(^|[^[:alnum:]_])ulimit([^[:alnum:]_]|$)'     "$root/src" "$root/tests/resource_limit_test.cpp" >/dev/null ||
+  fail 'shell limit utility entered resource-limit authority'
 ! grep -R -E 'pkgman\.conf|Pkgfile|fakeroot|legacy' \
     "$root/include" "$root/src" >/dev/null ||
   fail 'historical compatibility entered the backend'
