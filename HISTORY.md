@@ -1,5 +1,28 @@
 # History
 
+## libpkgexec-linux 0.5.0
+
+Adds exact Linux realization for the `libpkgexec 1.2` address-space,
+file-size, and open-files guarantees. Both backends set the requested finite
+value as the soft and hard `RLIMIT_AS`, `RLIMIT_FSIZE`, or `RLIMIT_NOFILE`
+value before the final start gate. Seccomp containment permits read-only limit
+inspection but denies later `setrlimit(2)` and mutating `prlimit64(2)` calls.
+
+Capability reporting is proof-based. Each exact kind enters the profile only
+after a child applies a representative soft/hard pair, installs mutation
+sealing, proves an attempted raise is denied, and rereads the unchanged value.
+Request values equal to `RLIM_INFINITY`, not representable by `rlim_t`, or above
+the inherited hard ceiling fail before start as resource admission failures.
+
+CPU-time and process-count guarantees remain unsupported: `RLIMIT_CPU` cannot
+represent the native millisecond contract, and `RLIMIT_NPROC` is scoped to a
+real UID rather than one execution tree. Signal numbers are not treated as
+causal limit evidence; `SIGXFSZ` remains ordinary signal termination while the
+established file-size guarantee is retained.
+
+The release raises the `libpkgexec` floor to 1.2.0. SONAME remains 1, and the
+0.4 filesystem, network, and pidfd cancellation contracts are unchanged.
+
 ## libpkgexec-linux 0.4.0
 
 Adds truthful request-bound graceful-then-forced cancellation to both Linux
