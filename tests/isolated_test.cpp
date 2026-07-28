@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -15,11 +16,46 @@
 #include <string_view>
 #include <vector>
 
+#include <elf.h>
 #include <grp.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
+
+bool has_program_interpreter(const std::filesystem::path& executable)
+{
+  std::ifstream stream(executable, std::ios::binary);
+  Elf64_Ehdr header{};
+  stream.read(reinterpret_cast<char*>(&header), sizeof(header));
+  if (!stream || std::memcmp(header.e_ident, ELFMAG, SELFMAG) != 0 ||
+      header.e_ident[EI_CLASS] != ELFCLASS64 ||
+      header.e_ident[EI_DATA] != ELFDATA2LSB ||
+      header.e_machine != EM_X86_64 ||
+      header.e_phentsize != sizeof(Elf64_Phdr) ||
+      header.e_phnum == PN_XNUM) {
+    throw std::runtime_error(
+        "interpreter fixture is not a supported x86-64 ELF executable");
+  }
+  stream.seekg(static_cast<std::streamoff>(header.e_phoff));
+  if (!stream) {
+    throw std::runtime_error(
+        "cannot inspect interpreter fixture program headers");
+  }
+  for (Elf64_Half index = 0; index < header.e_phnum; ++index) {
+    Elf64_Phdr program_header{};
+    stream.read(reinterpret_cast<char*>(&program_header),
+                sizeof(program_header));
+    if (!stream) {
+      throw std::runtime_error(
+          "cannot inspect interpreter fixture program headers");
+    }
+    if (program_header.p_type == PT_INTERP) {
+      return true;
+    }
+  }
+  return false;
+}
 
 class temporary_tree final {
 public:
@@ -74,6 +110,9 @@ private:
   void copy_runtime(const std::filesystem::path& executable)
   {
     copy_one(executable);
+    if (!has_program_interpreter(executable)) {
+      return;
+    }
     const std::string command = "ldd '" + executable.string() + "'";
     FILE* stream = ::popen(command.c_str(), "r");
     if (!stream) {
