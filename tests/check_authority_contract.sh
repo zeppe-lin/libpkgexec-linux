@@ -12,10 +12,16 @@ grep -q 'class host_supervisor_backend' "$root/include/libpkgexec-linux/backend.
   fail 'host supervisor API missing'
 grep -q 'class isolated_backend' "$root/include/libpkgexec-linux/backend.h" ||
   fail 'isolated backend API missing'
+grep -q 'controlled_execution_backend' "$root/include/libpkgexec-linux/backend.h" ||
+  fail 'controlled execution boundary missing'
+grep -q 'cancellation_token' "$root/include/libpkgexec-linux/backend.h" ||
+  fail 'request-bound cancellation token missing'
 grep -q 'does not create namespaces or mounts' "$root/include/libpkgexec-linux/backend.h" ||
   fail 'restricted resource boundary missing'
 grep -q 'networking' "$root/include/libpkgexec-linux/backend.h" ||
-  fail 'network refusal boundary missing'
+  fail 'network boundary missing'
+grep -q 'pidfd_cancellation' "$root/include/libpkgexec-linux/capability.h" ||
+  fail 'pidfd cancellation observation missing'
 grep -q 'process_group_containment' "$root/include/libpkgexec-linux/capability.h" ||
   fail 'cleanup containment observation missing'
 grep -q 'mount_setattr' "$root/include/libpkgexec-linux/capability.h" ||
@@ -39,6 +45,20 @@ grep -q 'NETLINK_ROUTE' "$root/src/network_isolation.cpp" ||
 ! grep -E 'system\(|popen\(|execl|execv' \
     "$root/src/network_isolation.cpp" >/dev/null ||
   fail 'external utility entered network authority'
+grep -q 'setsid()' "$root/src/backend.cpp" ||
+  fail 'private execution session missing'
+grep -q 'open_pidfd' "$root/src/backend.cpp" ||
+  fail 'pidfd leader observation missing'
+grep -q 'pidfd_send_signal' "$root/src/process_control.cpp" ||
+  fail 'pidfd signal authority missing'
+grep -q 'signal_process_group_members' "$root/src/backend.cpp" ||
+  fail 'pidfd process-group realization is not wired'
+grep -q 'waitid(type, identifier' "$root/src/backend.cpp" ||
+  fail 'waitid pidfd observation missing'
+grep -q 'cancellation_requested' "$root/src/backend.cpp" ||
+  fail 'call-scoped cancellation observation missing'
+! grep -E '::sigaction\(|::signal\(' "$root/src/backend.cpp" >/dev/null ||
+  fail 'ambient signal handler entered backend control'
 ! grep -R -E 'pkgman\.conf|Pkgfile|fakeroot|legacy' \
     "$root/include" "$root/src" >/dev/null ||
   fail 'historical compatibility entered the backend'
