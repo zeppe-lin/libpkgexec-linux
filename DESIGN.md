@@ -53,8 +53,9 @@ The parent opens every supplied root and resource directory once with
 and destination inode identities, creates detached mount trees with
 `open_tree(2)` before the child starts. The exact root clone is made read-only
 and `nosuid` while preserving device-node semantics already authorized by that
-root view. Every separately declared resource tree is made `nosuid` and `nodev`
-and receives its exact read-only or writable attribute through
+root view, including by clearing an inherited `nodev` mount attribute on the
+detached exact-root clone. Every separately declared resource tree is made
+`nosuid` and `nodev` and receives its exact read-only or writable attribute through
 `mount_setattr(2)`.
 
 The child creates a private mount namespace, makes propagation private, mounts

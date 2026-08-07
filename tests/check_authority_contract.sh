@@ -38,8 +38,10 @@ grep -q 'move_mount' "$root/src/mount_isolation.cpp" ||
   fail 'descriptor mount attachment missing'
 grep -q 'bool allow_devices' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource device policy is not explicit'
-grep -q 'if (!allow_devices)' "$root/src/mount_isolation.cpp" ||
-  fail 'declared resource nodev policy missing'
+grep -q 'if (allow_devices)' "$root/src/mount_isolation.cpp" ||
+  fail 'exact root device policy missing'
+grep -q 'attributes.attr_clr |= MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" ||
+  fail 'exact root does not clear inherited nodev'
 grep -q 'attributes.attr_set |= MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" ||
   fail 'declared resources are not sealed nodev'
 grep -q 'root.get(), pkgexec::resource_access::read_only, true' \

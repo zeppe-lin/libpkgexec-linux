@@ -206,12 +206,15 @@ bool set_tree_access(int tree_fd, pkgexec::resource_access access,
 #ifdef __NR_mount_setattr
   mount_attr attributes{};
   attributes.attr_set = MOUNT_ATTR_NOSUID;
-  if (!allow_devices)
+  if (allow_devices) {
+    attributes.attr_clr |= MOUNT_ATTR_NODEV;
+  } else {
     attributes.attr_set |= MOUNT_ATTR_NODEV;
+  }
   if (access == pkgexec::resource_access::read_only) {
     attributes.attr_set |= MOUNT_ATTR_RDONLY;
   } else {
-    attributes.attr_clr = MOUNT_ATTR_RDONLY;
+    attributes.attr_clr |= MOUNT_ATTR_RDONLY;
   }
   return ::syscall(__NR_mount_setattr, tree_fd, "", AT_EMPTY_PATH,
                    &attributes, sizeof(attributes)) == 0;
