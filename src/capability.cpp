@@ -367,7 +367,9 @@ capability_report capability_report::probe_isolated()
       {capability_kind::closed_environment, capability_state::available},
       {capability_kind::current_root_view, filesystem ? capability_state::available
                                                      : mount_state,
-       "the exact supplied root view is cloned read-only"},
+       filesystem
+           ? "the exact supplied root view is cloned read-only"
+           : mount_diagnostic},
       {capability_kind::current_credentials, capability_state::available,
        "only the supervisor's current numeric credentials are admitted"},
       {capability_kind::writable_resources, filesystem ? capability_state::available

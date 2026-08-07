@@ -200,11 +200,14 @@ int clone_tree(int source_fd) noexcept
 #endif
 }
 
-bool set_tree_access(int tree_fd, pkgexec::resource_access access) noexcept
+bool set_tree_access(int tree_fd, pkgexec::resource_access access,
+                     bool allow_devices) noexcept
 {
 #ifdef __NR_mount_setattr
   mount_attr attributes{};
-  attributes.attr_set = MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV;
+  attributes.attr_set = MOUNT_ATTR_NOSUID;
+  if (!allow_devices)
+    attributes.attr_set |= MOUNT_ATTR_NODEV;
   if (access == pkgexec::resource_access::read_only) {
     attributes.attr_set |= MOUNT_ATTR_RDONLY;
   } else {
@@ -215,19 +218,21 @@ bool set_tree_access(int tree_fd, pkgexec::resource_access access) noexcept
 #else
   (void)tree_fd;
   (void)access;
+  (void)allow_devices;
   errno = ENOSYS;
   return false;
 #endif
 }
 
-owned_fd prepare_tree(int source_fd, pkgexec::resource_access access)
+owned_fd prepare_tree(int source_fd, pkgexec::resource_access access,
+                      bool allow_devices = false)
 {
   owned_fd tree(clone_tree(source_fd));
   if (!tree) {
     throw error(error_code::invalid_value,
                 errno_message("clone exact mount tree", errno));
   }
-  if (!set_tree_access(tree.get(), access)) {
+  if (!set_tree_access(tree.get(), access, allow_devices)) {
     throw error(error_code::invalid_value,
                 errno_message("set exact mount-tree access", errno));
   }
@@ -481,7 +486,8 @@ isolated_admission admit_isolated_resources(
                         identity_of(target.get()), binding.access(),
                         binding.mount_point().string()});
   }
-  auto root_tree = prepare_tree(root.get(), pkgexec::resource_access::read_only);
+  auto root_tree = prepare_tree(
+      root.get(), pkgexec::resource_access::read_only, true);
   return isolated_admission(std::move(root_tree), std::move(admitted),
                             make_scratch());
 }
@@ -557,7 +563,7 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
                               pkgexec::resource_access::read_only,
                               "/resource"});
     auto root_tree = prepare_tree(
-        root.get(), pkgexec::resource_access::read_only);
+        root.get(), pkgexec::resource_access::read_only, true);
     admission = isolated_admission(std::move(root_tree),
                                     std::move(probe_bindings),
                                     make_scratch());

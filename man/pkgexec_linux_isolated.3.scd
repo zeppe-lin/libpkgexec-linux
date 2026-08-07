@@ -15,9 +15,10 @@ pkgexec_linux_isolated - private Linux filesystem and network execution contract
 materializations for every declared resource.
 
 The backend opens roots and resources without following symlinks, clones mount
-trees, applies read-only or writable mount attributes, creates a private mount
-namespace, attaches resources at their exact logical paths, enters the root,
-drops capabilities, and executes the exact interpreter descriptor.
+trees, makes the exact root read-only and `nosuid`, applies `nosuid,nodev` plus
+read-only or writable attributes to declared resource trees, creates a private
+mount namespace, attaches resources at their exact logical paths, enters the
+root, drops capabilities, and executes the exact interpreter descriptor.
 
 The root tree is read-only. Source and package-input resources must be
 read-only. Workspace, package-output, private-temporary, and managed-target
@@ -35,7 +36,10 @@ view with request-bound pidfd cancellation. Cancellation before the final start
 gate prevents program execution. Started cancellation preserves complete stream
 capture and requires both process-tree and scratch cleanup verification.
 
-The supplied root must contain all runtime material. Nested mounts and host
+The supplied root must contain all runtime material. Device nodes already
+present in that exact root remain usable; the backend creates no devices and
+imports no ambient host `/dev`. Device nodes supplied through separately
+declared resource mounts remain disabled by `nodev`. Nested mounts and host
 pseudo-filesystems are not inherited. Exact address-space, file-size, and
 open-files limits compose with the private filesystem and network views and are
 sealed before the final start gate. The backend creates no user or PID namespace

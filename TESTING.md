@@ -7,6 +7,7 @@ The test suite covers:
 - closed environment construction;
 - current-root host admission;
 - dedicated-root isolated admission;
+- exact root-view device-node usability without ambient `/dev` import;
 - no-symlink root and resource opening through `openat2(2)`;
 - root/resource and resource/resource overlap rejection;
 - detached `open_tree(2)` cloning and `move_mount(2)` attachment;
@@ -39,9 +40,19 @@ group cleanup. A raw `pidfd_open(2)` result is not sufficient coverage.
 
 The isolated integration test exits 77 when the runner cannot create the
 required mount or network namespaces, use the required mount and rtnetlink
-operations, or establish pidfd cancellation. This is a skip, not a pass. A
-delegated or privileged test run must execute the same binary and produce a real
-pass before the composed isolated guarantees are release-qualified.
+operations, establish pidfd cancellation, or prepare the exact root-view device
+fixture used to prove device-node semantics. Before returning 77 it reports the
+unsupported request and every unavailable or policy-restricted capability
+observation when execution admission is the blocker. Meson may suppress skipped test output in its compact summary. Run:
+
+```sh
+meson test -v libpkgexec-linux:isolated
+```
+
+(or execute the test binary directly) when the reason matters.
+This is a skip, not a pass. A delegated or privileged test run must execute the
+same binary and produce a real pass before the composed isolated guarantees are
+release-qualified.
 
 Network views are proved through a compiled fixture inside the supplied root.
 Cancellation is proved through compiled graceful and SIGTERM-resistant

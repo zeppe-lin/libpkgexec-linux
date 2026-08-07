@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -22,6 +23,7 @@
 #include <grp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
@@ -111,7 +113,7 @@ public:
     workspace_ = path_ / "workspace";
     for (const auto& directory :
          {root_, source_, workspace_, root_ / "source", root_ / "workspace",
-          root_ / "root-only"}) {
+          root_ / "root-only", root_ / "dev"}) {
       std::filesystem::create_directories(directory);
     }
     runtime_fixture::copy_runtime(root_, interpreter.executable());
@@ -119,6 +121,12 @@ public:
     runtime_fixture::copy_runtime(root_, cancellation,
                                   "/bin/cancellation-probe");
     runtime_fixture::copy_runtime(root_, limits, "/bin/resource-limit-probe");
+    struct stat null_device{};
+    if (::stat("/dev/null", &null_device) == 0 && S_ISCHR(null_device.st_mode)) {
+      device_node_available_ =
+          ::mknod((root_ / "dev" / "null").c_str(),
+                  S_IFCHR | 0666, null_device.st_rdev) == 0;
+    }
     std::ofstream(source_ / "input") << "source\n";
   }
   ~temporary_tree()
@@ -135,11 +143,14 @@ public:
   { return source_; }
   [[nodiscard]] const std::filesystem::path& workspace() const noexcept
   { return workspace_; }
+  [[nodiscard]] bool device_node_available() const noexcept
+  { return device_node_available_; }
 private:
   std::filesystem::path path_;
   std::filesystem::path root_;
   std::filesystem::path source_;
   std::filesystem::path workspace_;
+  bool device_node_available_ = false;
 };
 
 std::string digest(std::string_view value)
@@ -207,8 +218,8 @@ pkgexec::execution_request request(
       stream_policy::capture_complete, stream_policy::capture_complete);
   const std::string default_program =
       "test -f /source/input && "
-      "! ( : > /source/forbidden ) 2>/dev/null && "
-      "! ( : > /root-only/forbidden ) 2>/dev/null && "
+      "! ( : > /source/forbidden ) 2>/workspace/source-error && "
+      "! ( : > /root-only/forbidden ) 2>/workspace/root-error && "
       "test ! -e /etc/passwd && "
       "printf isolated > /workspace/output && "
       "printf '%s\\n' \"$PWD\"";
@@ -268,6 +279,30 @@ bool has_guarantee(const pkgexec::execution_result& result,
          result.established_guarantees().end();
 }
 
+int unsupported_status(
+    std::string_view scenario,
+    const pkgexec_linux::isolated_backend& backend,
+    const pkgexec::execution_request& request,
+    const pkgexec::execution_result& result)
+{
+  std::cerr << "libpkgexec-linux:isolated: " << scenario << ": "
+            << result.diagnostic() << '\n';
+  for (const auto& observation : backend.report().observations()) {
+    if (observation.state() == pkgexec_linux::capability_state::available)
+      continue;
+    std::cerr << "  " << pkgexec_linux::to_string(observation.capability())
+              << '=' << pkgexec_linux::to_string(observation.state());
+    if (!observation.diagnostic().empty())
+      std::cerr << ": " << observation.diagnostic();
+    std::cerr << '\n';
+  }
+  std::cerr << "  required:";
+  for (const auto guarantee : request.required_guarantees())
+    std::cerr << ' ' << pkgexec::to_string(guarantee);
+  std::cerr << '\n';
+  return 77;
+}
+
 int test()
 {
   const auto shell = pkgexec_linux::interpreter_binding::inspect("/bin/sh");
@@ -282,7 +317,8 @@ int test()
     CHECK(unsupported.start_state() == pkgexec::execution_start_state::not_started);
     CHECK(unsupported.failure() ==
           pkgexec::execution_failure_kind::backend_unsupported);
-    return 77;
+    return unsupported_status(
+        "baseline isolated execution", backend, execution_request, unsupported);
   }
 
   auto result = backend.execute(execution_request, execution_resources);
@@ -292,6 +328,19 @@ int test()
   CHECK(std::filesystem::exists(tree.workspace() / "output"));
   CHECK(!std::filesystem::exists(tree.source() / "forbidden"));
   CHECK(!std::filesystem::exists(tree.root() / "root-only" / "forbidden"));
+
+  if (!tree.device_node_available()) {
+    std::cerr << "libpkgexec-linux:isolated: root-device fixture unavailable; "
+                 "release qualification requires a context able to prepare "
+                 "the exact root device node\n";
+    return 77;
+  }
+  auto device_request = request(
+      shell, pkgexec::network_policy::allowed,
+      "test -c /dev/null && printf discarded > /dev/null");
+  auto device_result = backend.execute(
+      device_request, resources(device_request, tree));
+  require_success(device_result, "isolated root device execution");
 
   auto limited_request = request(
       shell, pkgexec::network_policy::allowed,
@@ -304,7 +353,8 @@ int test()
                                        resources(limited_request, tree));
     CHECK(unsupported.failure() ==
           pkgexec::execution_failure_kind::backend_unsupported);
-    return 77;
+    return unsupported_status(
+        "resource-limit execution", backend, limited_request, unsupported);
   }
   auto limited = backend.execute(limited_request,
                                  resources(limited_request, tree));
@@ -384,7 +434,8 @@ int test()
     CHECK(unsupported.start_state() == pkgexec::execution_start_state::not_started);
     CHECK(unsupported.failure() ==
           pkgexec::execution_failure_kind::backend_unsupported);
-    return 77;
+    return unsupported_status(
+        "denied-network execution", backend, denied_request, unsupported);
   }
   auto denied = backend.execute(denied_request, resources(denied_request, tree));
   require_success(denied, "denied network execution");
@@ -403,7 +454,8 @@ int test()
     CHECK(unsupported.start_state() == pkgexec::execution_start_state::not_started);
     CHECK(unsupported.failure() ==
           pkgexec::execution_failure_kind::backend_unsupported);
-    return 77;
+    return unsupported_status(
+        "loopback-only execution", backend, loopback_request, unsupported);
   }
   auto loopback = backend.execute(loopback_request,
                                   resources(loopback_request, tree));
@@ -428,7 +480,8 @@ int test()
           pkgexec::execution_start_state::not_started);
     CHECK(unsupported.failure() ==
           pkgexec::execution_failure_kind::backend_unsupported);
-    return 77;
+    return unsupported_status(
+        "cancellation execution", backend, cancellation_request, unsupported);
   }
   std::optional<pkgexec::execution_result> cancelled;
   std::thread cancellation_worker([&] {

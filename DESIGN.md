@@ -51,8 +51,11 @@ is silently weakened.
 The parent opens every supplied root and resource directory once with
 `openat2(2)` using no-symlink and no-magic-link resolution. It records source
 and destination inode identities, creates detached mount trees with
-`open_tree(2)`, and applies read-only, `nosuid`, and `nodev` attributes with
-`mount_setattr(2)` before the child starts.
+`open_tree(2)` before the child starts. The exact root clone is made read-only
+and `nosuid` while preserving device-node semantics already authorized by that
+root view. Every separately declared resource tree is made `nosuid` and `nodev`
+and receives its exact read-only or writable attribute through
+`mount_setattr(2)`.
 
 The child creates a private mount namespace, makes propagation private, mounts
 a private scratch filesystem, attaches the detached root and resource trees
@@ -70,7 +73,9 @@ Detached trees are not recursively cloned. Nested mounts and host
 pseudo-filesystems are not inherited. `/proc`, `/dev`, `/run`, `/tmp`, runtime
 loaders, shared libraries, and other execution material exist only when the
 supplied root contains them or the request declares an explicit resource at the
-required logical path.
+required logical path. Device nodes already present in the exact root remain
+usable; the backend creates none and never imports ambient host `/dev`. Device
+nodes from separately declared resource mounts remain disabled by `nodev`.
 
 The backend does not create a user namespace. A caller or test environment may
 provide delegated mount authority externally, but that delegation is not part

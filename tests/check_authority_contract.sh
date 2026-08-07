@@ -36,6 +36,17 @@ grep -q 'cannot overlap the root view' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource overlap rejection missing'
 grep -q 'move_mount' "$root/src/mount_isolation.cpp" ||
   fail 'descriptor mount attachment missing'
+grep -q 'bool allow_devices' "$root/src/mount_isolation.cpp" ||
+  fail 'root/resource device policy is not explicit'
+grep -q 'if (!allow_devices)' "$root/src/mount_isolation.cpp" ||
+  fail 'declared resource nodev policy missing'
+grep -q 'attributes.attr_set |= MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" ||
+  fail 'declared resources are not sealed nodev'
+grep -q 'root.get(), pkgexec::resource_access::read_only, true' \
+    "$root/src/mount_isolation.cpp" ||
+  fail 'exact root device semantics are not preserved explicitly'
+grep -q 'root device execution' "$root/tests/isolated_test.cpp" ||
+  fail 'exact root device semantics lack runtime qualification'
 grep -q 'setup_network_policy' "$root/src/backend.cpp" ||
   fail 'network policy is not wired into child setup'
 grep -q 'CLONE_NEWNET' "$root/src/network_isolation.cpp" ||
