@@ -1,5 +1,15 @@
 # History
 
+## libpkgexec-linux 0.5.1
+
+Makes unsupported-request evidence actionable. When a sealed execution request
+requires guarantees absent from the probed Linux backend profile, the returned
+pre-start diagnostic names the exact missing guarantees instead of collapsing
+them into a generic backend-unsupported message. Guarantee derivation, probing,
+admission, and fallback policy are unchanged.
+
+SONAME remains 1 and the libpkgexec dependency floor is unchanged.
+
 ## libpkgexec-linux 0.5.0
 
 Adds exact Linux realization for the `libpkgexec 1.2` address-space,

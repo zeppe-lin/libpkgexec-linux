@@ -4,7 +4,7 @@
 set -eu
 root=${1:?source root required}
 version=$(sed -n "s/^[[:space:]]*version: '\([^']*\)'.*/\1/p" "$root/meson.build" | head -n 1)
-[ "$version" = '0.5.0' ] || {
+[ "$version" = '0.5.1' ] || {
   echo "release-metadata: unexpected project version $version" >&2
   exit 1
 }
@@ -34,5 +34,9 @@ grep -q 'RLIMIT_NOFILE' "$root/HISTORY.md" || {
 }
 grep -q 'SONAME remains 1' "$root/HISTORY.md" || {
   echo 'release-metadata: ABI continuity statement missing' >&2
+  exit 1
+}
+grep -q 'exact missing guarantees' "$root/HISTORY.md" || {
+  echo 'release-metadata: unsupported-guarantee diagnostic scope missing' >&2
   exit 1
 }
