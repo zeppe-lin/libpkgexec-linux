@@ -18,7 +18,7 @@ if host_machine.system() != 'linux'
   error('libpkgexec-linux requires Linux')
 endif
 if host_machine.cpu_family() != 'x86_64'
-  error('libpkgexec-linux 0.4 supports x86_64 only')
+  error('libpkgexec-linux supports x86_64 only')
 endif
 
 library_kind = get_option('default_library')

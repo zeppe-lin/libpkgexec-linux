@@ -45,7 +45,6 @@ pkgconf.generate(
   filebase: 'libpkgexec-linux',
   description: 'Linux execution backends for libpkgexec',
   subdirs: '.',
-  requires: ['libpkgexec >= 1.2.0'],
   requires_private: ['libcrypto'],
   libraries_private: [threads_dep],
 )

@@ -16,7 +16,8 @@ grep -q "soversion: '1'" "$root/src/meson.build" || {
   echo 'release-metadata: SONAME 1 contract missing' >&2
   exit 1
 }
-grep -q "libpkgexec >= 1.2.0" "$root/src/meson.build" || {
+grep -A8 "libpkgexec_dep = dependency(" "$root/meson.build" |
+  grep -q "version: '>=1.2.0'" || {
   echo 'release-metadata: exact resource-limit authority floor missing' >&2
   exit 1
 }

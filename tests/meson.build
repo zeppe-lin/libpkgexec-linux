@@ -91,6 +91,7 @@ if get_option('tests').enabled()
     args: [
       join_paths(meson.current_source_dir(), 'metadata_test.sh'),
       meson.project_build_root(),
+      meson.project_version(),
     ],
   )
   test(
