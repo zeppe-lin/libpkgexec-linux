@@ -94,9 +94,11 @@ grep -q '__NR_setrlimit' "$root/src/process_control.cpp" ||
   fail 'setrlimit mutation seal missing'
 grep -q '__NR_prlimit64' "$root/src/process_control.cpp" ||
   fail 'prlimit mutation seal missing'
-grep -q "override_options: \['b_sanitize=none'\]" \
-    "$root/tests/meson.build" ||
-  fail 'resource-limit payload sanitizer exclusion missing'
+for payload in network-probe cancellation-probe resource-limit-probe; do
+  sed -n "/'$payload'/,/install: false/p" "$root/tests/meson.build" |
+    grep -q "override_options: \['b_sanitize=none'\]" ||
+    fail "$payload sanitizer exclusion missing"
+done
 ! grep -E 'RLIMIT_CPU|RLIMIT_NPROC' "$root/src/resource_limits.cpp" >/dev/null ||
   fail 'inexact CPU or per-UID process limits entered backend authority'
 ! grep -R -E '(^|[^[:alnum:]_])ulimit([^[:alnum:]_]|$)'     "$root/src" "$root/tests/resource_limit_test.cpp" >/dev/null ||

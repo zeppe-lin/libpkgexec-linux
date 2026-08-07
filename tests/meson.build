@@ -19,11 +19,19 @@ if get_option('tests').enabled()
   network_probe = executable(
     'network-probe',
     'network_probe.cpp',
+    # This binary is copied into a chrooted execution root. Sanitizer runtimes
+    # depend on host facilities such as /proc and would test the fixture
+    # environment rather than the backend's network contract.
+    override_options: ['b_sanitize=none'],
     install: false,
   )
   cancellation_probe = executable(
     'cancellation-probe',
     'cancellation_probe.cpp',
+    # Like network-probe, this is payload material for the isolated root, not
+    # part of the sanitizer subject. Keep host sanitizer runtimes out of the
+    # sealed child environment.
+    override_options: ['b_sanitize=none'],
     install: false,
   )
   cancellation_test = executable(
