@@ -1,5 +1,12 @@
 # Migration
 
+`libpkgexec-linux 0.5.2` keeps SONAME 1 and the `libpkgexec >= 1.2.0` floor.
+The isolated root clone remains read-only and `nosuid` but no longer forces
+`nodev`; device nodes explicitly present in the caller-supplied root therefore
+retain their Linux semantics. Separately declared execution resources remain
+`nodev`. Consumers that supplied device nodes in an exact root may now rely on
+them; no device view is synthesized.
+
 `libpkgexec-linux 0.5.0` raises the `libpkgexec` floor to 1.2.0. SONAME remains
 `libpkgexec-linux.so.1`; existing 0.4 consumers remain ABI-compatible.
 

@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 root=${1:?source root required}
+expected=${2:?expected project version required}
 version=$(sed -n "s/^[[:space:]]*version: '\([^']*\)'.*/\1/p" "$root/meson.build" | head -n 1)
-[ "$version" = '0.5.1' ] || {
-  echo "release-metadata: unexpected project version $version" >&2
+[ "$version" = "$expected" ] || {
+  echo "release-metadata: project version $version differs from Meson authority $expected" >&2
   exit 1
 }
 grep -q "## libpkgexec-linux $version" "$root/HISTORY.md" || {

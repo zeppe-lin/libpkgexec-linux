@@ -1,5 +1,20 @@
 # History
 
+## libpkgexec-linux 0.5.2
+
+Preserves device-node semantics from the exact caller-supplied isolated root
+view. The root tree remains read-only and `nosuid`, but is no longer forced
+`nodev`; explicitly declared resource mounts remain `nodev`. This makes
+caller-owned root devices such as `/dev/null` usable without synthesizing a
+device view, binding ambient host `/dev`, or weakening package/source resource
+mounts.
+
+The isolated integration test now reports exact unavailable capability
+observations before an environmental skip, and release qualification also proves
+that one exact root-view character device remains usable after isolation.
+
+SONAME remains 1 and the libpkgexec dependency floor is unchanged.
+
 ## libpkgexec-linux 0.5.1
 
 Makes unsupported-request evidence actionable. When a sealed execution request
