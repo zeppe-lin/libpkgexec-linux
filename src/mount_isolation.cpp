@@ -206,6 +206,7 @@ bool set_tree_access(int tree_fd, pkgexec::resource_access access,
 #ifdef __NR_mount_setattr
   mount_attr attributes{};
   attributes.attr_set = MOUNT_ATTR_NOSUID;
+  attributes.attr_clr = MOUNT_ATTR_NOEXEC;
   if (allow_devices) {
     attributes.attr_clr |= MOUNT_ATTR_NODEV;
   } else {

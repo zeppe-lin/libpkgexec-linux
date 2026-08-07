@@ -5,7 +5,9 @@
 Preserves device-node semantics from the exact caller-supplied isolated root
 view. The root tree remains read-only and `nosuid`; its detached clone actively
 clears an inherited `nodev` attribute while explicitly declared resource mounts
-remain `nodev`. This makes
+remain `nodev`. Exact roots and declared resource trees also clear inherited
+`noexec`, preventing the host staging filesystem from silently changing whether
+admitted executable material may run. This makes
 caller-owned root devices such as `/dev/null` usable without synthesizing a
 device view, binding ambient host `/dev`, or weakening package/source resource
 mounts.

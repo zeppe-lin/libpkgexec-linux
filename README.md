@@ -12,8 +12,8 @@ The 0.5 release line provides two truthful controlled backends:
   private mount namespace, attaches exact read-only or writable resource
   directories, and enforces allowed, denied, or loopback-only networking. The
   exact root is read-only and `nosuid`, actively clears inherited `nodev`, and
-  preserves caller-supplied device-node semantics; declared resource mounts
-  remain `nodev`.
+  preserves caller-supplied device-node semantics; all admitted root/resource
+  trees clear inherited `noexec`, while declared resource mounts remain `nodev`.
 
 Both backends realize exact address-space, file-size, and open-files limits
 when their end-to-end probes succeed. Requested values become both the soft and

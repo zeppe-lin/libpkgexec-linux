@@ -52,11 +52,12 @@ The parent opens every supplied root and resource directory once with
 `openat2(2)` using no-symlink and no-magic-link resolution. It records source
 and destination inode identities, creates detached mount trees with
 `open_tree(2)` before the child starts. The exact root clone is made read-only
-and `nosuid` while preserving device-node semantics already authorized by that
-root view, including by clearing an inherited `nodev` mount attribute on the
-detached exact-root clone. Every separately declared resource tree is made
-`nosuid` and `nodev` and receives its exact read-only or writable attribute through
-`mount_setattr(2)`.
+and `nosuid`, clears inherited `noexec`, and preserves device-node semantics already authorized by that root view by
+clearing inherited `nodev`. Every separately declared resource tree is made
+`nosuid` and `nodev`, clears inherited `noexec`, and receives its exact read-only
+or writable attribute through `mount_setattr(2)`. Execution permission therefore
+comes from admitted file modes and execution policy rather than the incidental
+mount flags of the host path that stores a root or resource tree.
 
 The child creates a private mount namespace, makes propagation private, mounts
 a private scratch filesystem, attaches the detached root and resource trees
