@@ -8,6 +8,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -16,7 +17,8 @@
 
 namespace runtime_fixture {
 
-inline bool has_program_interpreter(const std::filesystem::path& executable)
+inline std::optional<std::filesystem::path> program_interpreter(
+    const std::filesystem::path& executable)
 {
   std::ifstream stream(executable, std::ios::binary);
   Elf64_Ehdr header{};
@@ -42,11 +44,29 @@ inline bool has_program_interpreter(const std::filesystem::path& executable)
       throw std::runtime_error(
           "cannot inspect runtime fixture program headers");
     }
-    if (program_header.p_type == PT_INTERP) {
-      return true;
+    if (program_header.p_type != PT_INTERP) {
+      continue;
     }
+    if (program_header.p_filesz < 2U || program_header.p_filesz > 4096U) {
+      throw std::runtime_error("invalid runtime fixture ELF interpreter");
+    }
+    const auto resume = stream.tellg();
+    stream.seekg(static_cast<std::streamoff>(program_header.p_offset));
+    std::vector<char> value(static_cast<std::size_t>(program_header.p_filesz));
+    stream.read(value.data(), static_cast<std::streamsize>(value.size()));
+    if (!stream || value.back() != '\0') {
+      throw std::runtime_error("cannot read runtime fixture ELF interpreter");
+    }
+    const std::string path(value.data(), value.size() - 1U);
+    if (path.empty() || path.front() != '/' ||
+        path.find('\0') != std::string::npos) {
+      throw std::runtime_error("runtime fixture ELF interpreter is not absolute");
+    }
+    stream.clear();
+    stream.seekg(resume);
+    return std::filesystem::path(path);
   }
-  return false;
+  return std::nullopt;
 }
 
 inline void copy_one(const std::filesystem::path& root,
@@ -68,9 +88,11 @@ inline void copy_runtime(
 {
   copy_one(root, executable,
            logical_executable.empty() ? executable : logical_executable);
-  if (!has_program_interpreter(executable)) {
+  const auto interpreter = program_interpreter(executable);
+  if (!interpreter) {
     return;
   }
+  copy_one(root, *interpreter, *interpreter);
   const std::string command = "ldd '" + executable.string() + "'";
   FILE* stream = ::popen(command.c_str(), "r");
   if (!stream) {

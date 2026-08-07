@@ -8,6 +8,8 @@ The test suite covers:
 - current-root host admission;
 - dedicated-root isolated admission;
 - exact root-view device-node usability without ambient `/dev` import;
+- inherited `noexec` normalization for exact root and declared resource trees;
+- exact ELF `PT_INTERP` retention in synthetic runtime roots;
 - no-symlink root and resource opening through `openat2(2)`;
 - root/resource and resource/resource overlap rejection;
 - detached `open_tree(2)` cloning and `move_mount(2)` attachment;
@@ -53,6 +55,12 @@ meson test -v libpkgexec-linux:isolated
 This is a skip, not a pass. A delegated or privileged test run must execute the
 same binary and produce a real pass before the composed isolated guarantees are
 release-qualified.
+
+Synthetic runtime roots retain the executable's exact ELF `PT_INTERP` pathname
+in addition to the dependency closure reported by `ldd(1)`, so merged-`/usr` or
+loader-symlink layouts cannot make a present executable fail with `ENOENT`. The
+isolated test executes one copied dynamic probe without resource limits before
+using that same probe to qualify exact limits.
 
 Network views are proved through a compiled fixture inside the supplied root.
 Cancellation is proved through compiled graceful and SIGTERM-resistant

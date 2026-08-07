@@ -342,6 +342,13 @@ int test()
       device_request, resources(device_request, tree));
   require_success(device_result, "isolated root device execution");
 
+  auto runtime_probe_request = request(
+      shell, pkgexec::network_policy::allowed,
+      "/bin/resource-limit-probe show");
+  auto runtime_probe = backend.execute(
+      runtime_probe_request, resources(runtime_probe_request, tree));
+  require_success(runtime_probe, "isolated runtime fixture execution");
+
   auto limited_request = request(
       shell, pkgexec::network_policy::allowed,
       "/bin/resource-limit-probe show",

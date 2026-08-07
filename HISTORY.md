@@ -14,7 +14,9 @@ mounts.
 
 The isolated integration test now reports exact unavailable capability
 observations before an environmental skip, and release qualification also proves
-that one exact root-view character device remains usable after isolation.
+that one exact root-view character device remains usable after isolation. The
+synthetic runtime fixture also retains the exact ELF `PT_INTERP` path rather than
+relying on `ldd(1)`'s possibly resolved loader pathname.
 
 SONAME remains 1 and the libpkgexec dependency floor is unchanged.
 
