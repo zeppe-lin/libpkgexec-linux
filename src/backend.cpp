@@ -493,6 +493,21 @@ std::vector<pkgexec::execution_guarantee> without_guarantee(
   return result;
 }
 
+std::string unsupported_guarantees_diagnostic(
+    const pkgexec::backend_capability_profile& profile,
+    const pkgexec::execution_request& request)
+{
+  std::ostringstream message;
+  message << "Linux backend cannot establish required guarantees:";
+  for (const auto guarantee : request.required_guarantees()) {
+    if (!std::binary_search(profile.guarantees().begin(),
+                            profile.guarantees().end(), guarantee)) {
+      message << ' ' << pkgexec::to_string(guarantee);
+    }
+  }
+  return message.str();
+}
+
 
 bool observe_child_exit(pid_t child, int pidfd, siginfo_t& information) noexcept
 {
@@ -577,7 +592,7 @@ pkgexec::execution_result execute_backend(
   if (!profile.supports(request)) {
     return pkgexec::execution_result::failed_before_start(
         request, profile, pkgexec::execution_failure_kind::backend_unsupported,
-        {}, "Linux backend cannot establish all requested guarantees");
+        {}, unsupported_guarantees_diagnostic(profile, request));
   }
   if (cancellation && cancellation->cancellation_requested()) {
     return pkgexec::execution_result::cancelled_before_start(

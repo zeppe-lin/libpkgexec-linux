@@ -138,6 +138,7 @@ int test()
       network_request, fixture::resources(network_request, temporary.path()));
   CHECK(network.start_state() == execution_start_state::not_started);
   CHECK(network.failure() == execution_failure_kind::backend_unsupported);
+  CHECK(network.diagnostic().find("network-denied") != std::string::npos);
 
   auto readonly_request = fixture::request(
       shell, temporary.path(), "true", network_policy::allowed,
@@ -145,6 +146,8 @@ int test()
   auto readonly = backend.execute(
       readonly_request, fixture::resources(readonly_request, temporary.path()));
   CHECK(readonly.failure() == execution_failure_kind::backend_unsupported);
+  CHECK(readonly.diagnostic().find("read-only-resources") !=
+        std::string::npos);
 
   auto credential_request = fixture::request(
       shell, temporary.path(), "true", network_policy::allowed,
