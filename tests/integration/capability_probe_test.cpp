@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Alexandr Savca
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "test.h"
+#include "../support/test.h"
 
 #include <libpkgexec-linux/capability.h>
 
@@ -85,6 +85,14 @@ int test()
              capability_state::available ||
          first.state(capability_kind::open_files_limit) ==
              capability_state::available));
+  CHECK(std::find(first.profile().guarantees().begin(),
+                  first.profile().guarantees().end(),
+                  pkgexec::execution_guarantee::cpu_time_limit) ==
+        first.profile().guarantees().end());
+  CHECK(std::find(first.profile().guarantees().begin(),
+                  first.profile().guarantees().end(),
+                  pkgexec::execution_guarantee::process_count_limit) ==
+        first.profile().guarantees().end());
 
   const auto isolated_first = capability_report::probe_isolated();
   const auto isolated_second = capability_report::probe_isolated();
@@ -148,6 +156,14 @@ int test()
     CHECK(advertised ==
           (isolated_first.state(pair.first) == capability_state::available));
   }
+  CHECK(std::find(isolated_first.profile().guarantees().begin(),
+                  isolated_first.profile().guarantees().end(),
+                  pkgexec::execution_guarantee::cpu_time_limit) ==
+        isolated_first.profile().guarantees().end());
+  CHECK(std::find(isolated_first.profile().guarantees().begin(),
+                  isolated_first.profile().guarantees().end(),
+                  pkgexec::execution_guarantee::process_count_limit) ==
+        isolated_first.profile().guarantees().end());
   CHECK(to_string(capability_kind::loopback_configuration) ==
         "loopback-configuration");
   CHECK(to_string(capability_kind::landlock) == "landlock");

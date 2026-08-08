@@ -1,5 +1,31 @@
 # Testing
 
+## Test roles
+
+The suite is separated by authority and mechanism:
+
+- `unit` checks provider-owned value vocabulary with no execution;
+- `integration` checks host execution, capability probing, interpreter admission,
+  exact limits, and cancellation against real `libpkgexec` requests/results;
+- `integration-privileged` checks isolated filesystem, network, limit,
+  cancellation, and composed realization. Environmental inability exits 77;
+- `header` compiles every installed public header independently;
+- `contract` checks source/release/pkg-config/test-topology invariants.
+
+The three programs under `tests/fixtures/payloads/` are child payload material,
+not sanitizer subjects. They are built without compiler sanitizers while the
+backend and test harness retain the selected sanitizer configuration.
+
+Role-specific runs are useful when localizing a failure:
+
+```sh
+meson test -C build --suite unit --print-errorlogs
+meson test -C build --suite integration --print-errorlogs
+meson test -C build --suite integration-privileged --print-errorlogs -v
+meson test -C build --suite header --print-errorlogs
+meson test -C build --suite contract --print-errorlogs
+```
+
 The test suite covers:
 
 - deterministic host and isolated capability profiles;
@@ -40,21 +66,18 @@ The host cancellation test exits 77 when the end-to-end pidfd cancellation
 probe cannot establish exact leader observation, pidfd signaling, and process
 group cleanup. A raw `pidfd_open(2)` result is not sufficient coverage.
 
-The isolated integration test exits 77 when the runner cannot create the
-required mount or network namespaces, use the required mount and rtnetlink
-operations, establish pidfd cancellation, or prepare the exact root-view device
-fixture used to prove device-node semantics. Before returning 77 it reports the
-unsupported request and every unavailable or policy-restricted capability
-observation when execution admission is the blocker. Meson may suppress skipped test output in its compact summary. Run:
+The isolated integration cases exit 77 independently when the runner cannot
+realize the guarantee family under test. Each skipped case reports the exact
+unsupported request and unavailable or policy-restricted observations. The
+filesystem case separately requires preparation of the exact-root device fixture.
+Meson may suppress skipped output in its compact summary; use the
+`integration-privileged` suite with `-v` when the reason matters.
 
-```sh
-meson test -v libpkgexec-linux:isolated
-```
-
-(or execute the test binary directly) when the reason matters.
-This is a skip, not a pass. A delegated or privileged test run must execute the
-same binary and produce a real pass before the composed isolated guarantees are
-release-qualified.
+A skip is not release proof. A delegated or privileged run must PASS every
+`integration-privileged` case. The final `isolated-composition` request requires
+filesystem isolation, read-only/writable resources, denied networking, exact
+address-space/file-size/open-files limits, and request-bound cancellation at the
+same time.
 
 Synthetic runtime roots retain the executable's exact ELF `PT_INTERP` pathname
 in addition to the dependency closure reported by `ldd(1)`, so merged-`/usr` or

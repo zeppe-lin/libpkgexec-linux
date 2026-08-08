@@ -1,122 +1,204 @@
 # SPDX-FileCopyrightText: 2026 Alexandr Savca
 # SPDX-License-Identifier: GPL-3.0-or-later
 if get_option('tests').enabled()
-  foreach test_name : [
-    'capability',
-    'interpreter',
-    'backend',
+  unit_cases = [
+    ['capability-value', 'unit/capability_value_test.cpp'],
+    ['backend-construction', 'unit/backend_construction_test.cpp'],
   ]
-    test_binary = executable(
-      test_name + '-test',
-      test_name + '_test.cpp',
-      include_directories: include_directories('.'),
+  foreach case : unit_cases
+    target = executable(
+      case[0] + '-test',
+      case[1],
       dependencies: libpkgexec_linux_dep,
       install: false,
     )
-    test(test_name, test_binary)
+    test(case[0], target, suite: 'unit')
   endforeach
 
   network_probe = executable(
     'network-probe',
-    'network_probe.cpp',
-    # This binary is copied into a chrooted execution root. Sanitizer runtimes
-    # depend on host facilities such as /proc and would test the fixture
-    # environment rather than the backend's network contract.
+    'fixtures/payloads/network_probe.cpp',
     override_options: ['b_sanitize=none'],
     install: false,
   )
   cancellation_probe = executable(
     'cancellation-probe',
-    'cancellation_probe.cpp',
-    # Like network-probe, this is payload material for the isolated root, not
-    # part of the sanitizer subject. Keep host sanitizer runtimes out of the
-    # sealed child environment.
+    'fixtures/payloads/cancellation_probe.cpp',
     override_options: ['b_sanitize=none'],
     install: false,
   )
-  cancellation_test = executable(
-    'cancellation-test',
-    'cancellation_test.cpp',
-    include_directories: include_directories('.'),
-    dependencies: libpkgexec_linux_dep,
-    install: false,
-  )
-  test('cancellation', cancellation_test,
-       args: [cancellation_probe.full_path()])
-
   resource_limit_probe = executable(
     'resource-limit-probe',
-    'resource_limit_probe.cpp',
-    # RLIMIT_AS is the subject of this fixture. Sanitizer runtimes reserve
-    # implementation-defined virtual address ranges and would turn the
-    # payload into a test of the sanitizer rather than the backend contract.
+    'fixtures/payloads/resource_limit_probe.cpp',
     override_options: ['b_sanitize=none'],
     install: false,
   )
-  resource_limit_test = executable(
-    'resource-limit-test',
-    'resource_limit_test.cpp',
-    include_directories: include_directories('.'),
-    dependencies: libpkgexec_linux_dep,
-    install: false,
-  )
-  test('resource-limit', resource_limit_test,
-       args: [resource_limit_probe.full_path()])
 
-  isolated_test = executable(
-    'isolated-test',
-    'isolated_test.cpp',
-    include_directories: include_directories('.'),
-    dependencies: libpkgexec_linux_dep,
-    install: false,
-  )
-  test('isolated', isolated_test,
-       args: [network_probe.full_path(), cancellation_probe.full_path(),
-              resource_limit_probe.full_path()])
-
-  foreach header : [
-    'libpkgexec-linux/libpkgexec-linux.h',
-    'libpkgexec-linux/backend.h',
-    'libpkgexec-linux/capability.h',
-    'libpkgexec-linux/error.h',
-    'libpkgexec-linux/interpreter.h',
+  foreach case : [
+    ['capability-probe', 'integration/capability_probe_test.cpp'],
+    ['interpreter-binding', 'integration/interpreter_binding_test.cpp'],
+    ['host-execution', 'integration/host_execution_test.cpp'],
+    ['host-admission', 'integration/host_admission_test.cpp'],
   ]
-    name = 'public-' + header.split('/')[1].split('.')[0]
-    public_header = executable(
-      name,
-      'public_headers.cpp',
-      cpp_args: ['-DTEST_HEADER=<' + header + '>'],
+    target = executable(
+      case[0] + '-test',
+      case[1],
       dependencies: libpkgexec_linux_dep,
       install: false,
     )
-    test(name, public_header)
+    test(case[0], target, suite: 'integration')
   endforeach
+
+  host_limit_test = executable(
+    'host-resource-limit-test',
+    'integration/host_resource_limit_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'host-resource-limit',
+    host_limit_test,
+    args: [resource_limit_probe.full_path()],
+    suite: 'integration',
+  )
+
+  host_cancellation_test = executable(
+    'host-cancellation-test',
+    'integration/host_cancellation_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'host-cancellation',
+    host_cancellation_test,
+    args: [cancellation_probe.full_path()],
+    suite: 'integration',
+  )
+
+  isolated_filesystem_test = executable(
+    'isolated-filesystem-test',
+    'privileged/isolated_filesystem_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'isolated-filesystem',
+    isolated_filesystem_test,
+    suite: 'integration-privileged',
+  )
+
+  isolated_network_test = executable(
+    'isolated-network-test',
+    'privileged/isolated_network_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'isolated-network',
+    isolated_network_test,
+    args: [network_probe.full_path()],
+    suite: 'integration-privileged',
+  )
+
+  isolated_limit_test = executable(
+    'isolated-resource-limit-test',
+    'privileged/isolated_resource_limit_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'isolated-resource-limit',
+    isolated_limit_test,
+    args: [resource_limit_probe.full_path()],
+    suite: 'integration-privileged',
+  )
+
+  isolated_cancellation_test = executable(
+    'isolated-cancellation-test',
+    'privileged/isolated_cancellation_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'isolated-cancellation',
+    isolated_cancellation_test,
+    args: [cancellation_probe.full_path()],
+    suite: 'integration-privileged',
+  )
+
+  isolated_composition_test = executable(
+    'isolated-composition-test',
+    'privileged/isolated_composition_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'isolated-composition',
+    isolated_composition_test,
+    args: [cancellation_probe.full_path(), resource_limit_probe.full_path()],
+    suite: 'integration-privileged',
+  )
+
+  foreach header : [
+    'backend.h',
+    'capability.h',
+    'error.h',
+    'interpreter.h',
+  ]
+    target = executable(
+      'public-header-' + header.underscorify(),
+      'header/public_header_test.cpp',
+      cpp_args: ['-DTEST_HEADER=<libpkgexec-linux/' + header + '>'],
+      dependencies: libpkgexec_linux_dep,
+      install: false,
+    )
+    test('public-header-' + header, target, suite: 'header')
+  endforeach
+  umbrella = executable(
+    'umbrella-header-test',
+    'header/umbrella_header_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test('umbrella-header', umbrella, suite: 'header')
 
   sh = find_program('sh')
   test(
-    'metadata',
+    'pkgconfig-metadata',
     sh,
     args: [
-      join_paths(meson.current_source_dir(), 'metadata_test.sh'),
+      join_paths(meson.current_source_dir(), 'contracts/check_pkgconfig_metadata.sh'),
       meson.project_build_root(),
       meson.project_version(),
     ],
+    suite: 'contract',
   )
   test(
     'release-metadata',
     sh,
     args: [
-      join_paths(meson.current_source_dir(), 'check_release_metadata.sh'),
+      join_paths(meson.current_source_dir(), 'contracts/check_release_metadata.sh'),
       meson.project_source_root(),
       meson.project_version(),
     ],
+    suite: 'contract',
   )
   test(
     'authority-contract',
     sh,
     args: [
-      join_paths(meson.current_source_dir(), 'check_authority_contract.sh'),
+      join_paths(meson.current_source_dir(), 'contracts/check_authority_contract.sh'),
       meson.project_source_root(),
     ],
+    suite: 'contract',
+  )
+  test(
+    'test-layout',
+    sh,
+    args: [
+      join_paths(meson.current_source_dir(), 'contracts/check_test_layout.sh'),
+      meson.project_source_root(),
+    ],
+    suite: 'contract',
   )
 endif

@@ -1,0 +1,76 @@
+// SPDX-FileCopyrightText: 2026 Alexandr Savca
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "../fixtures/isolated.h"
+#include "../support/isolated_skip.h"
+#include "../support/result.h"
+#include "../support/test.h"
+
+#include <libpkgexec-linux/libpkgexec-linux.h>
+
+#include <chrono>
+#include <filesystem>
+#include <optional>
+#include <thread>
+
+namespace {
+
+std::filesystem::path probe_path;
+
+int test()
+{
+  using namespace pkgexec;
+  using namespace pkgexec_linux;
+  using namespace isolated_fixture;
+
+  const auto shell = interpreter_binding::inspect("/bin/sh");
+  tree material(shell, {{probe_path, "/bin/cancellation-probe"}});
+  auto backend = isolated_backend::make({shell});
+  const auto marker = material.workspace() / "cancel.ready";
+  auto request_value = request(
+      shell, network_policy::allowed,
+      "/bin/cancellation-probe graceful /workspace/cancel.ready",
+      cancellation_policy::graceful_then_forced(500));
+  auto cancellation = cancellation_source::for_request(request_value);
+  const auto token = cancellation.token();
+  if (!backend.capabilities().supports(request_value)) {
+    auto unsupported = backend.execute(
+        request_value, resources(request_value, material), token);
+    CHECK(unsupported.failure() == execution_failure_kind::backend_unsupported);
+    return test_support::isolated_skip("cancellation", backend,
+                                       request_value, unsupported);
+  }
+
+  std::optional<execution_result> result;
+  std::thread worker([&] {
+    result.emplace(backend.execute(
+        request_value, resources(request_value, material), token));
+  });
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+  while (!std::filesystem::exists(marker) &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  const bool ready = std::filesystem::exists(marker);
+  const bool requested = cancellation.request_cancellation();
+  worker.join();
+  CHECK(ready);
+  CHECK(requested);
+  CHECK(result.has_value());
+  CHECK(result->failure() == execution_failure_kind::cancelled);
+  CHECK(result->start_state() == execution_start_state::started);
+  CHECK(result->termination()->kind() == process_termination_kind::cancelled);
+  CHECK(result->cleanup() == cleanup_outcome::verified);
+  CHECK(result->established_guarantees() == request_value.required_guarantees());
+  return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+  if (argc != 2) {
+    return 2;
+  }
+  probe_path = argv[1];
+  return run_test(test);
+}

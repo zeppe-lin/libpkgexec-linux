@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Alexandr Savca
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "fixture.h"
-#include "test.h"
+#include "../fixtures/host.h"
+#include "../support/test.h"
+#include "../support/temporary_directory.h"
 
 #include <chrono>
 #include <filesystem>
@@ -14,26 +15,6 @@
 
 namespace {
 
-class temporary_directory final {
-public:
-  temporary_directory()
-  {
-    std::string pattern = "/tmp/pkgexec-linux-cancellation.XXXXXX";
-    char* value = ::mkdtemp(pattern.data());
-    if (!value) {
-      throw std::runtime_error("mkdtemp failed");
-    }
-    path_ = value;
-  }
-  ~temporary_directory()
-  {
-    std::error_code ignored;
-    std::filesystem::remove_all(path_, ignored);
-  }
-  const std::filesystem::path& path() const noexcept { return path_; }
-private:
-  std::filesystem::path path_;
-};
 
 bool wait_for_path(const std::filesystem::path& path)
 {
@@ -87,7 +68,7 @@ int test(const std::filesystem::path& probe)
   using namespace pkgexec;
   using namespace pkgexec_linux;
 
-  temporary_directory temporary;
+  test_support::temporary_directory temporary;
   const auto shell = interpreter_binding::inspect("/bin/sh");
   auto backend = host_supervisor_backend::make({shell});
   if (backend.report().state(capability_kind::pidfd_cancellation) !=

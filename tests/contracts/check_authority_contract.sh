@@ -49,7 +49,7 @@ grep -q 'attributes.attr_set |= MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp
 grep -q 'root.get(), pkgexec::resource_access::read_only, true' \
     "$root/src/mount_isolation.cpp" ||
   fail 'exact root device semantics are not preserved explicitly'
-grep -q 'root device execution' "$root/tests/isolated_test.cpp" ||
+grep -q 'root device execution' "$root/tests/privileged/isolated_filesystem_test.cpp" ||
   fail 'exact root device semantics lack runtime qualification'
 grep -q 'setup_network_policy' "$root/src/backend.cpp" ||
   fail 'network policy is not wired into child setup'
@@ -101,8 +101,19 @@ for payload in network-probe cancellation-probe resource-limit-probe; do
 done
 ! grep -E 'RLIMIT_CPU|RLIMIT_NPROC' "$root/src/resource_limits.cpp" >/dev/null ||
   fail 'inexact CPU or per-UID process limits entered backend authority'
-! grep -R -E '(^|[^[:alnum:]_])ulimit([^[:alnum:]_]|$)'     "$root/src" "$root/tests/resource_limit_test.cpp" >/dev/null ||
+! grep -R -E '(^|[^[:alnum:]_])ulimit([^[:alnum:]_]|$)'     "$root/src" "$root/tests/integration/host_resource_limit_test.cpp" "$root/tests/privileged/isolated_resource_limit_test.cpp" >/dev/null ||
   fail 'shell limit utility entered resource-limit authority'
 ! grep -R -E 'pkgman\.conf|Pkgfile|fakeroot|legacy' \
     "$root/include" "$root/src" >/dev/null ||
   fail 'historical compatibility entered the backend'
+
+grep -q 'network_policy::denied' "$root/tests/privileged/isolated_composition_test.cpp" ||
+  fail 'isolated composition does not require denied networking'
+grep -q 'resource_limits::make' "$root/tests/privileged/isolated_composition_test.cpp" ||
+  fail 'isolated composition does not require exact resource limits'
+grep -q 'graceful_then_forced' "$root/tests/privileged/isolated_composition_test.cpp" ||
+  fail 'isolated composition does not require cancellation'
+grep -q 'auto established = request.required_guarantees()' "$root/src/backend.cpp" ||
+  fail 'started result evidence is not request-bounded'
+! grep -q 'established = profile.guarantees()' "$root/src/backend.cpp" ||
+  fail 'backend profile leaked into request-scoped result evidence'
