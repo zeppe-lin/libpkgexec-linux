@@ -143,6 +143,7 @@ if get_option('tests').enabled()
     'backend.h',
     'capability.h',
     'error.h',
+    'export.h',
     'interpreter.h',
   ]
     target = executable(
@@ -162,14 +163,44 @@ if get_option('tests').enabled()
   )
   test('umbrella-header', umbrella, suite: 'header')
 
+  abi_layout = executable(
+    'abi-layout-test',
+    'contracts/abi_layout_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test('abi-layout', abi_layout, suite: 'contract')
+
   sh = find_program('sh')
+  if library_kind == 'shared'
+    nm = find_program('nm')
+    test(
+      'abi-surface',
+      sh,
+      args: [
+        meson.current_source_dir() / 'contracts/check_abi_surface.sh',
+        nm.full_path(),
+        libpkgexec_linux.full_path(),
+        meson.project_source_root() / 'abi/libpkgexec-linux.exports',
+      ],
+      suite: 'contract',
+    )
+    test(
+      'dependency-abi',
+      sh,
+      args: [
+        meson.current_source_dir() / 'contracts/check_dependency_abi.sh',
+        libpkgexec_linux.full_path(),
+      ],
+      suite: 'contract',
+    )
+  endif
   test(
     'pkgconfig-metadata',
     sh,
     args: [
       join_paths(meson.current_source_dir(), 'contracts/check_pkgconfig_metadata.sh'),
       meson.project_build_root(),
-      meson.project_version(),
     ],
     suite: 'contract',
   )
@@ -179,7 +210,6 @@ if get_option('tests').enabled()
     args: [
       join_paths(meson.current_source_dir(), 'contracts/check_release_metadata.sh'),
       meson.project_source_root(),
-      meson.project_version(),
     ],
     suite: 'contract',
   )
@@ -197,6 +227,24 @@ if get_option('tests').enabled()
     sh,
     args: [
       join_paths(meson.current_source_dir(), 'contracts/check_test_layout.sh'),
+      meson.project_source_root(),
+    ],
+    suite: 'contract',
+  )
+  test(
+    'abi-contract',
+    sh,
+    args: [
+      join_paths(meson.current_source_dir(), 'contracts/check_abi_contract.sh'),
+      meson.project_source_root(),
+    ],
+    suite: 'contract',
+  )
+  test(
+    'ci-contract',
+    sh,
+    args: [
+      join_paths(meson.current_source_dir(), 'contracts/check_ci_contract.sh'),
       meson.project_source_root(),
     ],
     suite: 'contract',

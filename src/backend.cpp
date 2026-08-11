@@ -556,6 +556,8 @@ host_supervisor_backend::host_supervisor_backend(
 {
 }
 
+host_supervisor_backend::~host_supervisor_backend() = default;
+
 host_supervisor_backend host_supervisor_backend::make(
     std::vector<interpreter_binding> interpreters)
 {
@@ -1102,6 +1104,8 @@ isolated_backend::isolated_backend(
     : report_(std::move(report)), interpreters_(std::move(interpreters))
 {
 }
+
+isolated_backend::~isolated_backend() = default;
 
 isolated_backend isolated_backend::make(
     std::vector<interpreter_binding> interpreters)

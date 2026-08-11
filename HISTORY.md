@@ -1,5 +1,25 @@
 # History
 
+## libpkgexec-linux 0.6.0
+
+Rebuilds the Linux backend product on the reviewed `libpkgexec 2.x` execution
+authority and advances the backend SONAME to 2. The execution-2 transition does
+not change the x86-64 layouts of the base backend, request/result, capability,
+or interpreter values retained by this library; the SONAME change instead
+closes the previously published backend ABI, whose unrestricted ELF surface
+exposed private `detail` machinery, private constructors, STL instantiations,
+and compiler-dependent symbols. Generation 2 exports only the reviewed public
+Linux backend contract.
+
+The release requires `libpkgexec >= 2.0.0, < 3.0.0` and direct
+`libpkgsource >= 3.0.1, < 4.0.0`; the Linux backend calls source-owned program
+materialization and does not rely on that provider through a transitive accident. It anchors the public backend
+and error RTTI/vtables in the provider DSO, rejects unsupported capability and
+capability-state vocabulary at observation admission, and qualifies the actual
+shared/static installed product under GCC, Clang, and ASan/UBSan. Privileged
+isolation remains a separate release gate: an environmental skip is diagnostic,
+not proof.
+
 ## libpkgexec-linux 0.5.2
 
 Preserves device-node semantics from the exact caller-supplied isolated root

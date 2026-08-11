@@ -3,42 +3,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 root=${1:?source root required}
-expected=${2:?expected project version required}
-version=$(sed -n "s/^[[:space:]]*version: '\([^']*\)'.*/\1/p" "$root/meson.build" | head -n 1)
-[ "$version" = "$expected" ] || {
-  echo "release-metadata: project version $version differs from Meson authority $expected" >&2
-  exit 1
-}
-grep -q "## libpkgexec-linux $version" "$root/HISTORY.md" || {
-  echo "release-metadata: HISTORY omits $version" >&2
-  exit 1
-}
-grep -q "soversion: '1'" "$root/src/meson.build" || {
-  echo 'release-metadata: SONAME 1 contract missing' >&2
-  exit 1
-}
-grep -A8 "libpkgexec_dep = dependency(" "$root/meson.build" |
-  grep -q "version: '>=1.2.0'" || {
-  echo 'release-metadata: exact resource-limit authority floor missing' >&2
-  exit 1
-}
-grep -q 'RLIMIT_AS' "$root/HISTORY.md" || {
-  echo 'release-metadata: address-space limit scope missing' >&2
-  exit 1
-}
-grep -q 'RLIMIT_FSIZE' "$root/HISTORY.md" || {
-  echo 'release-metadata: file-size limit scope missing' >&2
-  exit 1
-}
-grep -q 'RLIMIT_NOFILE' "$root/HISTORY.md" || {
-  echo 'release-metadata: open-files limit scope missing' >&2
-  exit 1
-}
-grep -q 'SONAME remains 1' "$root/HISTORY.md" || {
-  echo 'release-metadata: ABI continuity statement missing' >&2
-  exit 1
-}
-grep -q 'exact missing guarantees' "$root/HISTORY.md" || {
-  echo 'release-metadata: unsupported-guarantee diagnostic scope missing' >&2
-  exit 1
-}
+fail() { echo "release-metadata: $*" >&2; exit 1; }
+grep -F "version: '0.6.0'" "$root/meson.build" >/dev/null || fail 'project version is not 0.6.0'
+grep -F "soversion: '2'" "$root/src/meson.build" >/dev/null || fail 'SONAME is not 2'
+source_block=$(sed -n '/^libpkgsource_dep = dependency(/,/^)/p' "$root/meson.build")
+printf '%s\n' "$source_block" | grep -F "  version: ['>=3.0.1', '<4.0.0']," >/dev/null ||
+  fail 'source dependency interval is not >=3.0.1,<4.0.0'
+block=$(sed -n '/^libpkgexec_dep = dependency(/,/^)/p' "$root/meson.build")
+printf '%s\n' "$block" | grep -F "  version: ['>=2.0.0', '<3.0.0']," >/dev/null ||
+  fail 'execution dependency interval is not >=2.0.0,<3.0.0'
+grep -F '## libpkgexec-linux 0.6.0' "$root/HISTORY.md" >/dev/null || fail '0.6.0 history entry is absent'
+grep -F 'libpkgexec-linux.so.2' "$root/MIGRATION.md" >/dev/null || fail 'generation-2 migration is absent'
+grep -F 'libpkgexec >= 2.0.0, < 3.0.0' "$root/HISTORY.md" >/dev/null || fail 'history omits exact exec2 interval'
+grep -F 'libpkgsource >= 3.0.1, < 4.0.0' "$root/HISTORY.md" >/dev/null || fail 'history omits exact source3 interval'

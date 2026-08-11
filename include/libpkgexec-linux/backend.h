@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <libpkgexec/backend.h>
+#include <libpkgexec-linux/export.h>
 #include <libpkgexec-linux/capability.h>
 #include <libpkgexec-linux/interpreter.h>
 
@@ -23,8 +24,9 @@ namespace pkgexec_linux {
  *  succeed. Request-bound graceful-then-forced cancellation is admitted when
  *  the pidfd cancellation capability is available.
  */
-class host_supervisor_backend final : public pkgexec::controlled_execution_backend {
+class PKGEXEC_LINUX_API host_supervisor_backend final : public pkgexec::controlled_execution_backend {
 public:
+  ~host_supervisor_backend() override;
   [[nodiscard]] static host_supervisor_backend make(
       std::vector<interpreter_binding> interpreters);
   [[nodiscard]] const capability_report& report() const noexcept;
@@ -45,7 +47,7 @@ private:
 };
 
 
-/*! \brief Linux v0.5 backend with private filesystem and network views.
+/*! \brief Linux backend with private filesystem and network views.
  *
  *  The backend realizes the exact supplied root view in a private mount
  *  namespace, attaches each admitted directory at its logical path, and
@@ -57,8 +59,9 @@ private:
  *  Request-bound graceful-then-forced cancellation is admitted when pidfd
  *  cancellation is available.
  */
-class isolated_backend final : public pkgexec::controlled_execution_backend {
+class PKGEXEC_LINUX_API isolated_backend final : public pkgexec::controlled_execution_backend {
 public:
+  ~isolated_backend() override;
   [[nodiscard]] static isolated_backend make(
       std::vector<interpreter_binding> interpreters);
   [[nodiscard]] const capability_report& report() const noexcept;

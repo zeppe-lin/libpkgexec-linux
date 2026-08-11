@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <libpkgexec/result.h>
+#include <libpkgexec-linux/export.h>
 
 namespace pkgexec_linux {
 
@@ -52,10 +53,10 @@ enum class capability_state {
   policy_restricted,
 };
 
-[[nodiscard]] std::string_view to_string(capability_kind value) noexcept;
-[[nodiscard]] std::string_view to_string(capability_state value) noexcept;
+[[nodiscard]] PKGEXEC_LINUX_API std::string_view to_string(capability_kind value) noexcept;
+[[nodiscard]] PKGEXEC_LINUX_API std::string_view to_string(capability_state value) noexcept;
 
-class capability_observation final {
+class PKGEXEC_LINUX_API capability_observation final {
 public:
   capability_observation(capability_kind capability,
                          capability_state state,
@@ -70,7 +71,7 @@ private:
 };
 
 /*! \brief Current backend guarantees plus diagnostic Linux feature probes. */
-class capability_report final {
+class PKGEXEC_LINUX_API capability_report final {
 public:
   [[nodiscard]] static capability_report probe();
   [[nodiscard]] static capability_report probe_isolated();

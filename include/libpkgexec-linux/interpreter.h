@@ -9,21 +9,22 @@
 #include <filesystem>
 
 #include <libpkgexec/model.h>
+#include <libpkgexec-linux/export.h>
 
 namespace pkgexec_linux {
 
-class interpreter_binding final {
+class PKGEXEC_LINUX_API interpreter_binding final {
 public:
   [[nodiscard]] static interpreter_binding inspect(
       const std::filesystem::path& executable);
   [[nodiscard]] const pkgexec::interpreter_identity& identity() const noexcept;
   [[nodiscard]] const std::filesystem::path& executable() const noexcept;
   [[nodiscard]] const pkgexec::sha256_digest& content_digest() const noexcept;
-  friend bool operator==(const interpreter_binding& lhs,
+  friend PKGEXEC_LINUX_API bool operator==(const interpreter_binding& lhs,
                          const interpreter_binding& rhs) noexcept;
-  friend bool operator!=(const interpreter_binding& lhs,
+  friend PKGEXEC_LINUX_API bool operator!=(const interpreter_binding& lhs,
                          const interpreter_binding& rhs) noexcept;
-  friend bool operator<(const interpreter_binding& lhs,
+  friend PKGEXEC_LINUX_API bool operator<(const interpreter_binding& lhs,
                         const interpreter_binding& rhs) noexcept;
 private:
   interpreter_binding(pkgexec::interpreter_identity identity,

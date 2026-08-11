@@ -2,7 +2,7 @@
 
 `libpkgexec-linux` is the Linux backend family for `libpkgexec`.
 
-The 0.5 release line provides two truthful controlled backends:
+The 0.6 release line provides two truthful controlled backends:
 
 - `host_supervisor_backend` preserves the host-view contract: current `/`,
   current credentials, caller-prepositioned writable resources, allowed
@@ -42,7 +42,7 @@ private view and brings only loopback up through rtnetlink. Allowed networking
 preserves the caller's network namespace. No policy silently degrades to
 allowed networking.
 
-Version 0.5 still does not provide user or PID namespaces, Landlock, cgroups,
+Version 0.6 still does not provide user or PID namespaces, Landlock, cgroups,
 arbitrary credential transitions, CPU-time limits, or execution-wide process
 count limits. `RLIMIT_CPU` cannot represent the native millisecond contract,
 and `RLIMIT_NPROC` is scoped to a real UID rather than one execution tree.

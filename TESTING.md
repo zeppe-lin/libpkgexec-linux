@@ -101,3 +101,25 @@ extensions, or root-supplied process utilities.
 The backend does not create a user namespace merely to make CI pass. Tests may
 run under externally delegated user, mount, and network authority, but must
 report that condition separately from backend behavior.
+
+## Release-product qualification
+
+The 0.6 release additionally freezes the installed product rather than only the
+in-tree test executables. Shared builds require the exact reviewed ELF ABI,
+`SONAME libpkgexec-linux.so.2`, direct `NEEDED libpkgexec.so.2` and
+`NEEDED libpkgsource.so.3` edges, while refusing obsolete execution/source generations.
+The x86-64 layout contract freezes the exec2 carriers
+embedded by the Linux backend together with the Linux-owned public values.
+
+`ci/configure-and-test.sh` builds and installs source3, exec2, then this project
+into isolated prefixes and compiles `tests/installed/consumer.cpp` only through
+the generated pkg-config metadata. `ci/qualify.sh` repeats the product under GCC
+and Clang, shared and static, plus ASan/UBSan shared qualification. Hosted CI
+uses the same entry point. The installed consumer exercises virtual dispatch
+through the exec2 base class and catches a Linux-provider error across the DSO
+boundary.
+
+The hosted runner may report environmental skips for privileged namespace
+realization. Those skips remain non-proof. A release still requires the separate
+delegated/root `integration-privileged` run described above with every case
+PASSing.

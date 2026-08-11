@@ -3,25 +3,44 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 build_root=${1:?build root required}
-expected_version=${2:?expected project version required}
-pc=$(find "$build_root" -name libpkgexec-linux.pc -type f -print -quit)
-if [ -z "$pc" ]; then
-  echo 'metadata-test: libpkgexec-linux.pc not found' >&2
-  exit 1
-fi
+metadata=$build_root/meson-private/libpkgexec-linux.pc
 fail()
 {
-  echo "metadata-test: $1" >&2
-  echo '--- generated metadata ---' >&2
-  cat "$pc" >&2
+  echo "metadata-test: $*" >&2
+  if [ -n "${metadata:-}" ] && [ -f "$metadata" ]; then
+    echo '--- generated metadata ---' >&2
+    cat "$metadata" >&2
+    echo '--- end generated metadata ---' >&2
+  fi
   exit 1
 }
-grep -Eq '^Name:[[:space:]]+libpkgexec-linux$' "$pc" || fail 'wrong module name'
-grep -Fqx "Version: $expected_version" "$pc" || fail 'wrong version'
-grep -Eq '^Libs:.*-lpkgexec-linux([[:space:]]|$)' "$pc" || fail 'missing Linux backend library'
-grep -Eq '(^|[[:space:],])libpkgexec[[:space:]]*>=[[:space:]]*1\.2\.0([[:space:],]|$)' "$pc" ||
-  fail 'missing exact execution authority floor'
-requires=$(sed -n 's/^Requires:[[:space:]]*//p' "$pc")
-case $requires in
-  *libpkgexec*libpkgexec*) fail 'duplicate execution authority dependency' ;;
-esac
+if [ ! -s "$metadata" ]; then
+  metadata=$(find "$build_root" -type f -name libpkgexec-linux.pc -print | sed -n '1p')
+fi
+[ -n "${metadata:-}" ] && [ -s "$metadata" ] || fail 'generated libpkgexec-linux.pc was not found'
+[ "$(sed -n 's/^Name:[[:space:]]*//p' "$metadata")" = libpkgexec-linux ] || fail 'wrong module name'
+[ "$(sed -n 's/^Version:[[:space:]]*//p' "$metadata")" = 0.6.0 ] || fail 'wrong module version'
+normalize_requirements()
+{
+  sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+      -e 's/[[:space:]][[:space:]]*/ /g' \
+      -e 's/ *\([<>]=\|[<>=]\) */ \1 /' -e '/^$/d'
+}
+requires=$(sed -n 's/^Requires:[[:space:]]*//p' "$metadata" | tr ',' '\n' | normalize_requirements)
+expected='libpkgexec >= 2.0.0
+libpkgexec < 3.0.0
+libpkgsource >= 3.0.1
+libpkgsource < 4.0.0'
+for requirement in \
+  'libpkgexec >= 2.0.0' 'libpkgexec < 3.0.0' \
+  'libpkgsource >= 3.0.1' 'libpkgsource < 4.0.0'
+do
+  count=$(printf '%s\n' "$requires" | grep -Fxc "$requirement" || true)
+  [ "$count" -eq 1 ] || fail "metadata contains $count copies of '$requirement', expected exactly one"
+done
+[ "$(printf '%s\n' "$requires" | LC_ALL=C sort)" = "$(printf '%s\n' "$expected" | LC_ALL=C sort)" ] ||
+  fail 'public requirements are not the exact exec-2/source-3 intervals'
+private=$(sed -n 's/^Requires\.private:[[:space:]]*//p' "$metadata" | tr ',' '\n' | normalize_requirements)
+[ "$private" = libcrypto ] || fail "private requirements are '$private', expected libcrypto"
+libs=$(sed -n 's/^Libs:[[:space:]]*//p' "$metadata")
+printf ' %s \n' "$libs" | grep -F ' -lpkgexec-linux ' >/dev/null || fail 'missing libpkgexec-linux'

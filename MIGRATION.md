@@ -1,5 +1,13 @@
 # Migration
 
+`libpkgexec-linux 0.6.0` advances to `libpkgexec-linux.so.2` and requires
+`libpkgexec >= 2.0.0, < 3.0.0` plus direct `libpkgsource >= 3.0.1, < 4.0.0`.
+Recompile consumers against the generation-2
+execution headers and backend DSO. No compatibility surface is provided for the
+accidental private/STL exports of `libpkgexec-linux.so.1`; old toolchains may
+continue to use their old backend generation. Public x86-64 carrier layouts are
+unchanged across the exec1-to-exec2 dependency transition.
+
 `libpkgexec-linux 0.5.2` keeps SONAME 1 and the `libpkgexec >= 1.2.0` floor.
 The isolated root clone remains read-only and `nosuid` but no longer forces
 `nodev`; device nodes explicitly present in the caller-supplied root therefore

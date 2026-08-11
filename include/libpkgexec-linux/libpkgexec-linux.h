@@ -5,4 +5,5 @@
 #include <libpkgexec-linux/backend.h>
 #include <libpkgexec-linux/capability.h>
 #include <libpkgexec-linux/error.h>
+#include <libpkgexec-linux/export.h>
 #include <libpkgexec-linux/interpreter.h>

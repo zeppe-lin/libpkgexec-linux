@@ -3,7 +3,7 @@
 project(
   'libpkgexec-linux',
   'cpp',
-  version: '0.5.2',
+  version: '0.6.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -32,9 +32,15 @@ endif
 
 threads_dep = dependency('threads')
 libcrypto_dep = dependency('libcrypto', required: true, static: want_static)
+libpkgsource_dep = dependency(
+  'libpkgsource',
+  version: ['>=3.0.1', '<4.0.0'],
+  required: true,
+  static: want_static,
+)
 libpkgexec_dep = dependency(
   'libpkgexec',
-  version: '>=1.2.0',
+  version: ['>=2.0.0', '<3.0.0'],
   required: true,
   static: want_static,
   fallback: ['libpkgexec', 'libpkgexec_dep'],

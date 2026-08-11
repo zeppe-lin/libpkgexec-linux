@@ -8,9 +8,9 @@ fail()
   echo "authority-contract: $1" >&2
   exit 1
 }
-grep -q 'class host_supervisor_backend' "$root/include/libpkgexec-linux/backend.h" ||
+grep -Eq 'class( PKGEXEC_LINUX_API)? host_supervisor_backend' "$root/include/libpkgexec-linux/backend.h" ||
   fail 'host supervisor API missing'
-grep -q 'class isolated_backend' "$root/include/libpkgexec-linux/backend.h" ||
+grep -Eq 'class( PKGEXEC_LINUX_API)? isolated_backend' "$root/include/libpkgexec-linux/backend.h" ||
   fail 'isolated backend API missing'
 grep -q 'controlled_execution_backend' "$root/include/libpkgexec-linux/backend.h" ||
   fail 'controlled execution boundary missing'
@@ -117,3 +117,12 @@ grep -q 'auto established = request.required_guarantees()' "$root/src/backend.cp
   fail 'started result evidence is not request-bounded'
 ! grep -q 'established = profile.guarantees()' "$root/src/backend.cpp" ||
   fail 'backend profile leaked into request-scoped result evidence'
+
+grep -F 'unsupported Linux capability vocabulary' "$root/src/capability.cpp" >/dev/null ||
+  fail 'capability observation does not reject unsupported capability vocabulary'
+grep -F 'unsupported Linux capability-state vocabulary' "$root/src/capability.cpp" >/dev/null ||
+  fail 'capability observation does not reject unsupported state vocabulary'
+grep -F 'static_cast<capability_kind>(255)' "$root/tests/unit/capability_value_test.cpp" >/dev/null ||
+  fail 'invalid capability vocabulary lacks a direct negative test'
+grep -F 'static_cast<capability_state>(255)' "$root/tests/unit/capability_value_test.cpp" >/dev/null ||
+  fail 'invalid capability-state vocabulary lacks a direct negative test'

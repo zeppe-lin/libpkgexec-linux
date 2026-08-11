@@ -32,3 +32,16 @@ failure, `EMFILE`, or signal number alone. CPU milliseconds must not be rounded
 to `RLIMIT_CPU`, and process count must not be mapped to per-UID
 `RLIMIT_NPROC`. Any new limit mechanism must state its accounting scope and
 request-specific admission ceiling.
+
+ABI generation 2 is an exact ELF contract. Any change to `libpkgexec`'s public
+base backend, capability-profile, request/result, cancellation, or interpreter
+layouts requires an explicit `libpkgexec-linux` ABI review before widening the
+dependency interval. Shared qualification must prove direct
+`NEEDED libpkgexec.so.2` and direct `NEEDED libpkgsource.so.3`; the Linux
+backend calls `pkgsource::program::material()` itself, so source authority is a direct
+production dependency rather than an inherited pkg-config accident. Source-compatible
+compilation alone is insufficient.
+
+Hosted CI must build the exact source-3 + exec-2 closure used by the current
+release. Updating a dependency generation without updating the hosted checkout
+and installed-product qualification is a release-blocking defect.

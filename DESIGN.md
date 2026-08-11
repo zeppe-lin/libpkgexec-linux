@@ -218,6 +218,6 @@ A raw successful `pidfd_open(2)` is diagnostic only. Observations distinguish
 paths, external delegation, cancellation timing, and diagnostic strings do not
 enter backend capability-profile identities.
 
-This is not yet full package-build isolation. Version 0.5 still advertises no
+This is not yet full package-build isolation. Version 0.6 still advertises no
 arbitrary credential isolation, PID namespace, Landlock, cgroup, CPU-time, or
 execution-wide process-count guarantee.
