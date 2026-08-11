@@ -24,6 +24,54 @@
 namespace pkgexec_linux {
 namespace {
 
+bool valid(capability_kind value) noexcept
+{
+  switch (value) {
+    case capability_kind::process_supervision:
+    case capability_kind::closed_environment:
+    case capability_kind::current_root_view:
+    case capability_kind::current_credentials:
+    case capability_kind::writable_resources:
+    case capability_kind::complete_stream_capture:
+    case capability_kind::process_group_containment:
+    case capability_kind::no_new_privileges:
+    case capability_kind::descriptor_execution:
+    case capability_kind::close_range:
+    case capability_kind::pidfd:
+    case capability_kind::pidfd_cancellation:
+    case capability_kind::mount_namespace:
+    case capability_kind::private_mount_propagation:
+    case capability_kind::openat2:
+    case capability_kind::open_tree:
+    case capability_kind::move_mount:
+    case capability_kind::mount_setattr:
+    case capability_kind::chroot:
+    case capability_kind::capability_drop:
+    case capability_kind::user_namespace:
+    case capability_kind::pid_namespace:
+    case capability_kind::network_namespace:
+    case capability_kind::landlock:
+    case capability_kind::cgroup_v2:
+    case capability_kind::loopback_configuration:
+    case capability_kind::address_space_limit:
+    case capability_kind::file_size_limit:
+    case capability_kind::open_files_limit:
+      return true;
+  }
+  return false;
+}
+
+bool valid(capability_state value) noexcept
+{
+  switch (value) {
+    case capability_state::available:
+    case capability_state::unavailable:
+    case capability_state::policy_restricted:
+      return true;
+  }
+  return false;
+}
+
 pkgexec::backend_identity backend_identity(std::string_view name)
 {
   return pkgexec::backend_identity::from_sha256(
@@ -193,6 +241,14 @@ capability_observation::capability_observation(
     capability_kind capability, capability_state state, std::string diagnostic)
     : capability_(capability), state_(state), diagnostic_(std::move(diagnostic))
 {
+  if (!valid(capability_)) {
+    throw error(error_code::invalid_value,
+                "unsupported Linux capability vocabulary");
+  }
+  if (!valid(state_)) {
+    throw error(error_code::invalid_value,
+                "unsupported Linux capability-state vocabulary");
+  }
 }
 capability_kind capability_observation::capability() const noexcept
 { return capability_; }

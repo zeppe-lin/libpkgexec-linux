@@ -58,6 +58,25 @@ int test()
   CHECK(to_string(capability_state::unavailable) == "unavailable");
   CHECK(to_string(capability_state::policy_restricted) == "policy-restricted");
 
+  for (const auto invalid : {static_cast<capability_kind>(255)}) {
+    bool rejected = false;
+    try {
+      (void)capability_observation(invalid, capability_state::available);
+    } catch (const error& value) {
+      rejected = value.code() == error_code::invalid_value;
+    }
+    CHECK(rejected);
+  }
+  for (const auto invalid : {static_cast<capability_state>(255)}) {
+    bool rejected = false;
+    try {
+      (void)capability_observation(capability_kind::pidfd, invalid);
+    } catch (const error& value) {
+      rejected = value.code() == error_code::invalid_value;
+    }
+    CHECK(rejected);
+  }
+
   const error value(error_code::duplicate_interpreter, "duplicate");
   CHECK(value.code() == error_code::duplicate_interpreter);
   CHECK(std::string(value.what()) == "duplicate");
