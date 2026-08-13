@@ -105,12 +105,17 @@ pkgexec::sha256_digest digest_fd(int fd)
 
 pkgexec::sha256_digest digest_file(const std::filesystem::path& path)
 {
-  const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   if (fd < 0) {
     throw error(error_code::interpreter_inspection_failed,
                 errno_message("open interpreter", errno));
   }
   try {
+    struct stat info {};
+    if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode)) {
+      throw error(error_code::interpreter_inspection_failed,
+                  "interpreter descriptor is not a regular file");
+    }
     auto result = digest_fd(fd);
     ::close(fd);
     return result;

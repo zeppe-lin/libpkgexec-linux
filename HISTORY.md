@@ -1,4 +1,17 @@
-# History
+# libpkgexec-linux history
+
+## libpkgexec-linux 0.6.1
+
+Nonblocking interpreter-authority maintenance release.
+
+- Reopen admitted interpreter paths with nonblocking regular-file admission so a
+  concurrent FIFO replacement cannot wedge inspection or execution before typed
+  refusal.
+- Preserve exact retained interpreter digest and identity verification before
+  program start; no pathname replacement can silently alter admitted bytes.
+- Normalize manual-page authority to canonical Markdown with committed generated
+  roff and remove the scdoc source layer.
+- Qualify against the published `libpkgexec 2.1.0` execution core.
 
 ## libpkgexec-linux 0.6.0
 

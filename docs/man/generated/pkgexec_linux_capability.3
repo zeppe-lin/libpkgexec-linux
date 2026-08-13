@@ -1,0 +1,29 @@
+.\" Generated from docs/man/pkgexec_linux_capability.3.md; do not edit.
+.\"
+.TH "PKGEXEC_LINUX_CAPABILITY" "3" "" "libpkgexec\-linux" "Version 0.6.1"
+.SH NAME
+pkgexec_linux_capability \- Linux backend capability observations
+.SH SYNOPSIS
+\f[B]#include <libpkgexec\-linux/capability.h>\f[R]
+.SH DESCRIPTION
+\f[B]capability_report::probe()\f[R] reports the host supervisor.
+\f[B]capability_report::probe_isolated()\f[R] performs end\-to\-end private\-root, resource\-mount, denied\-network, loopback\-only, pidfd\-cancellation, and exact resource\-limit realization probes before advertising their guarantees.
+.PP
+Observation states are \f[B]available\f[R], \f[B]unavailable\f[R], and \f[B]policy\-restricted\f[R].
+Namespace, loopback configuration, Landlock, cgroup, close\-range, raw pidfd, and mount observations describe the current host.
+They do not become execution guarantees unless the selected backend actually uses them to realize a request.
+.PP
+A raw successful \f[B]pidfd_open\f[R](2) is not sufficient for cancellation.
+The cancellation probe creates a private execution session with a descendant, signals exact members through pidfds, observes the leader through \f[B]waitid(P_PIDFD)\f[R], and verifies that descendants disappear before advertising the guarantee.
+.PP
+A resource\-limit probe installs one representative soft/hard pair, seals later mutation, proves that an attempted raise is denied, and rereads the unchanged value.
+A raw successful \f[B]setrlimit\f[R](2) call is not sufficient.
+.PP
+A raw successful namespace syscall is not sufficient for a network guarantee.
+The denied probe verifies a private link view with down loopback.
+The loopback\-only probe additionally configures loopback and completes an internal round trip.
+.PP
+The isolated backend does not create a user namespace.
+External delegation may make mount and network realization available, but that fact is diagnostic and does not enter execution identities.
+.SH SEE ALSO
+\f[B]libpkgexec\-linux\f[R](3), \f[B]pkgexec_linux_backend\f[R](3), \f[B]pkgexec_linux_isolated\f[R](3), \f[B]pkgexec_linux_limits\f[R](3), \f[B]pkgexec_backend\f[R](3)

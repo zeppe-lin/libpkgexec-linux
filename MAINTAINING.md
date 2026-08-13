@@ -1,9 +1,9 @@
-# Maintaining
+# Maintaining libpkgexec-linux
 
 Release qualification must include strict GCC and Clang builds, the full test
 suite, sanitizer execution, standalone public headers, shared and static
 consumers, SONAME and direct dependency inspection, generated pkg-config
-metadata, manual generation where available, patch hygiene, and independent
+metadata, manual regeneration and freshness checking where Pandoc is available, patch hygiene, and independent
 mbox replay.
 
 Cancellation changes require an end-to-end host pass proving pre-start,

@@ -1,0 +1,29 @@
+.\" Generated from docs/man/pkgexec_linux_limits.3.md; do not edit.
+.\"
+.TH "PKGEXEC_LINUX_LIMITS" "3" "" "libpkgexec\-linux" "Version 0.6.1"
+.SH NAME
+pkgexec_linux_limits \- exact Linux resource\-limit realization
+.SH SYNOPSIS
+\f[B]#include <libpkgexec\-linux/backend.h>\f[R]
+.SH DESCRIPTION
+Both Linux backends may realize the native \f[B]address_space_bytes\f[R], \f[B]file_size_bytes\f[R], and \f[B]open_files\f[R] limits through \f[B]RLIMIT_AS\f[R], \f[B]RLIMIT_FSIZE\f[R], and \f[B]RLIMIT_NOFILE\f[R].
+.PP
+For every admitted kind, the requested finite value becomes both the soft and hard Linux limit before the final program\-start gate.
+The inherited hard ceiling is never raised.
+A value equal to \f[B]RLIM_INFINITY\f[R], not representable by \f[B]rlim_t\f[R], or above the inherited hard ceiling fails before start as \f[B]resource_admission_failed\f[R].
+.PP
+After installing the limits, seccomp containment denies mutating \f[B]setrlimit\f[R](2) and \f[B]prlimit64\f[R](2) calls.
+Read\-only \f[B]prlimit64\f[R](2) inspection remains available.
+Descendants inherit both the exact limits and the mutation seal.
+.PP
+Capability reporting is proof\-based.
+The aggregate \f[B]resource_limits\f[R] guarantee is combined only with exact kind guarantees whose child probe can install a representative soft/hard pair, seal mutation, prove that an attempted raise is denied, and reread the unchanged value.
+.PP
+\f[B]cpu_time_milliseconds\f[R] is unsupported because \f[B]RLIMIT_CPU\f[R] has whole\-second granularity.
+\f[B]process_count\f[R] is unsupported because \f[B]RLIMIT_NPROC\f[R] is scoped to a real UID rather than one execution tree.
+.PP
+A signal observed while a limit is active does not prove that the limit caused termination.
+In particular, \f[B]SIGXFSZ\f[R] remains ordinary signal\-termination evidence.
+The established file\-size guarantee is retained, but the backend does not synthesize \f[B]resource_limit_exceeded\f[R] evidence from a signal number alone.
+.SH SEE ALSO
+\f[B]libpkgexec\-linux\f[R](3), \f[B]pkgexec_linux_backend\f[R](3), \f[B]pkgexec_linux_isolated\f[R](3), \f[B]pkgexec_linux_capability\f[R](3), \f[B]pkgexec_result\f[R](3)

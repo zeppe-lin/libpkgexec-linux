@@ -1,4 +1,4 @@
-# Contributing
+# Contributing to libpkgexec-linux
 
 Keep Linux mechanisms in this repository and semantic execution authority in
 `libpkgexec`.
@@ -12,4 +12,4 @@ termination evidence and must seal limits against later mutation. Never replace
 a failed guarantee with a warning.
 
 Use C++17, GPL-3.0-or-later SPDX headers, focused commits, strict warnings, and
-model plus integration tests. Correct scdoc continuation syntax is required.
+model plus integration tests. Canonical Markdown manual syntax and generated-roff freshness are required.

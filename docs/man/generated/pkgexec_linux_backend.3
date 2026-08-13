@@ -1,0 +1,26 @@
+.\" Generated from docs/man/pkgexec_linux_backend.3.md; do not edit.
+.\"
+.TH "PKGEXEC_LINUX_BACKEND" "3" "" "libpkgexec\-linux" "Version 0.6.1"
+.SH NAME
+pkgexec_linux_backend \- Linux host\-supervisor execution contract
+.SH SYNOPSIS
+\f[B]#include <libpkgexec\-linux/backend.h>\f[R]
+.SH DESCRIPTION
+\f[B]host_supervisor_backend::make()\f[R] accepts exact \f[B]interpreter_binding\f[R] values.
+The ordinary \f[B]execute()\f[R] overload admits only disabled cancellation.
+The controlled overload additionally requires the exact request\-bound \f[B]cancellation_token\f[R].
+.PP
+The child enters a private session and process group before the final program start gate.
+A seccomp filter prevents descendants from changing session, process\-group, namespace, or mount state.
+The parent drains requested streams, classifies termination, terminates remaining group members, and reports \f[B]cleanup_verified\f[R] only after the group disappears.
+.PP
+Cancellation observed before release of the start gate prevents execution.
+After start, the backend sends \f[B]SIGTERM\f[R] through pidfds, waits the sealed grace period, and escalates to \f[B]SIGKILL\f[R].
+The leader remains unreaped while descendant cleanup is verified.
+No ambient signal handler or numeric\-PID cancellation fallback is used.
+.PP
+This backend creates no alternate filesystem or network view.
+It may realize exact address\-space, file\-size, and open\-files limits before the final start gate and seals them against later mutation.
+See \f[B]pkgexec_linux_limits\f[R](3) for the limit contract and \f[B]pkgexec_linux_isolated\f[R](3) for private mount\-view execution.
+.SH SEE ALSO
+\f[B]libpkgexec\-linux\f[R](3), \f[B]pkgexec_linux_isolated\f[R](3), \f[B]pkgexec_linux_capability\f[R](3), \f[B]pkgexec_linux_limits\f[R](3), \f[B]pkgexec_backend\f[R](3)

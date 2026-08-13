@@ -3,7 +3,7 @@
 project(
   'libpkgexec-linux',
   'cpp',
-  version: '0.6.0',
+  version: '0.6.1',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -54,5 +54,5 @@ libpkgexec_dep = dependency(
 pkgconf = import('pkgconfig')
 
 subdir('src')
-subdir('man')
+subdir('docs/man')
 subdir('tests')

@@ -1,0 +1,30 @@
+.\" Generated from docs/man/libpkgexec-linux.3.md; do not edit.
+.\"
+.TH "LIBPKGEXEC\-LINUX" "3" "" "libpkgexec\-linux" "Version 0.6.1"
+.SH NAME
+libpkgexec\-linux \- Linux execution backends for libpkgexec
+.SH SYNOPSIS
+\f[B]#include <libpkgexec\-linux/libpkgexec\-linux.h>\f[R]
+.SH DESCRIPTION
+\f[B]libpkgexec\-linux\f[R] implements Linux backends for sealed \f[B]libpkgexec\f[R] requests.
+.PP
+\f[B]host_supervisor_backend\f[R] uses the current root and network views, current credentials, exact interpreter bytes, a closed environment, complete pipe capture, and verified process\-tree cleanup.
+.PP
+\f[B]isolated_backend\f[R] constructs a private mount namespace from one exact dedicated root\-view directory.
+It clones that root read\-only and \f[B]nosuid\f[R], preserving device nodes already present in the exact supplied root, and attaches admitted read\-only or writable directory resources at their declared logical paths with \f[B]nodev\f[R].
+The root must contain the interpreter and complete runtime closure; the backend imports no ambient host \f[I]/dev\f[R].
+.PP
+For \f[B]allowed\f[R] networking the isolated backend preserves the caller\[aq]s network namespace.
+For \f[B]denied\f[R] networking it creates a private network namespace with only administratively down loopback.
+For \f[B]loopback\-only\f[R] networking it creates the private namespace and brings up only loopback.
+.PP
+Both backends implement \f[B]controlled_execution_backend\f[R].
+Disabled cancellation uses the ordinary execution call.
+Graceful\-then\-forced cancellation requires the exact request\-bound token.
+Where the end\-to\-end pidfd probe succeeds, the backend creates a private execution session, sends signals through pidfds, honors the sealed grace period, and verifies descendant cleanup.
+.PP
+Both backends require current credentials.
+Where the realization probes succeed, they admit exact address\-space, file\-size, and open\-files limits and seal them against later mutation.
+They provide no user or PID namespace, Landlock, cgroup, CPU\-time, or execution\-wide process\-count guarantee.
+.SH SEE ALSO
+\f[B]pkgexec_linux_backend\f[R](3), \f[B]pkgexec_linux_isolated\f[R](3), \f[B]pkgexec_linux_capability\f[R](3), \f[B]pkgexec_linux_limits\f[R](3), \f[B]libpkgexec\f[R](3), \f[B]pkgexec_semantics\f[R](7)

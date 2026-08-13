@@ -9,6 +9,9 @@
 #include <filesystem>
 #include <fstream>
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 namespace {
 
 int test()
@@ -122,6 +125,27 @@ int test()
       changed_request, fixture::resources(changed_request, temporary.path()));
   CHECK(changed.start_state() == execution_start_state::not_started);
   CHECK(changed.failure() == execution_failure_kind::interpreter_unavailable);
+
+  const auto fifo_interpreter_path = temporary.path() / "shell-fifo";
+  std::filesystem::copy_file(shell.executable(), fifo_interpreter_path);
+  std::filesystem::permissions(
+      fifo_interpreter_path,
+      std::filesystem::perms::owner_read |
+          std::filesystem::perms::owner_write |
+          std::filesystem::perms::owner_exec);
+  const auto fifo_interpreter =
+      interpreter_binding::inspect(fifo_interpreter_path);
+  auto fifo_backend = host_supervisor_backend::make({fifo_interpreter});
+  auto fifo_request =
+      fixture::request(fifo_interpreter, temporary.path(), "true");
+  std::filesystem::remove(fifo_interpreter_path);
+  CHECK(::mkfifo(fifo_interpreter_path.c_str(), 0600) == 0);
+  ::alarm(2);
+  auto fifo_result = fifo_backend.execute(
+      fifo_request, fixture::resources(fifo_request, temporary.path()));
+  ::alarm(0);
+  CHECK(fifo_result.start_state() == execution_start_state::not_started);
+  CHECK(fifo_result.failure() == execution_failure_kind::interpreter_unavailable);
 
   const auto alternate_interpreter_path = temporary.path() / "alternate-interpreter";
   {

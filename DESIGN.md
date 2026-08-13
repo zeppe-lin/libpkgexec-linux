@@ -1,4 +1,4 @@
-# Design
+# libpkgexec-linux design
 
 ## Authority boundary
 

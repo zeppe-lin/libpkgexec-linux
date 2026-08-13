@@ -637,7 +637,7 @@ pkgexec::execution_result execute_backend(
         {}, "no exact interpreter binding matches the request");
   }
   unique_fd interpreter_fd(::open(configured->executable().c_str(),
-                                  O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+                                  O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
   if (!interpreter_fd) {
     return pkgexec::execution_result::failed_before_start(
         request, profile,

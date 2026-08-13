@@ -1,4 +1,4 @@
-# Migration
+# libpkgexec-linux migration
 
 `libpkgexec-linux 0.6.0` advances to `libpkgexec-linux.so.2` and requires
 `libpkgexec >= 2.0.0, < 3.0.0` plus direct `libpkgsource >= 3.0.1, < 4.0.0`.

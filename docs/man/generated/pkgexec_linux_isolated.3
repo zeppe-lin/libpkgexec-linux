@@ -1,0 +1,38 @@
+.\" Generated from docs/man/pkgexec_linux_isolated.3.md; do not edit.
+.\"
+.TH "PKGEXEC_LINUX_ISOLATED" "3" "" "libpkgexec\-linux" "Version 0.6.1"
+.SH NAME
+pkgexec_linux_isolated \- private Linux filesystem and network execution contract
+.SH SYNOPSIS
+\f[B]#include <libpkgexec\-linux/backend.h>\f[R]
+.SH DESCRIPTION
+\f[B]isolated_backend::make()\f[R] accepts exact \f[B]interpreter_binding\f[R] values.
+\f[B]execute()\f[R] requires a dedicated root\-view directory and exact directory materializations for every declared resource.
+.PP
+The backend opens roots and resources without following symlinks, clones mount trees, makes the exact root read\-only and \f[CR]nosuid\f[R], applies \f[CR]nosuid,nodev\f[R] plus read\-only or writable attributes to declared resource trees, creates a private mount namespace, attaches resources at their exact logical paths, enters the root, drops capabilities, and executes the exact interpreter descriptor.
+.PP
+The root tree is read\-only.
+Source and package\-input resources must be read\-only.
+Workspace, package\-output, private\-temporary, and managed\-target resources must be writable.
+Root and resource host paths cannot overlap.
+.PP
+\f[B]network_policy::allowed\f[R] preserves the caller\[aq]s network namespace.
+\f[B]network_policy::denied\f[R] creates a private network namespace whose only link is administratively down loopback.
+\f[B]network_policy::loopback_only\f[R] creates the same private view and brings only loopback up.
+The backend invokes no network configuration program and inherits no host interface or route into either private view.
+.PP
+The controlled execution overload composes the same isolated root and network view with request\-bound pidfd cancellation.
+Cancellation before the final start gate prevents program execution.
+Started cancellation preserves complete stream capture and requires both process\-tree and scratch cleanup verification.
+.PP
+The supplied root must contain all runtime material.
+Device nodes already present in that exact root remain usable; the backend creates no devices and imports no ambient host \f[CR]/dev\f[R].
+Device nodes supplied through separately declared resource mounts remain disabled by \f[CR]nodev\f[R].
+Nested mounts and host pseudo\-filesystems are not inherited.
+Exact address\-space, file\-size, and open\-files limits compose with the private filesystem and network views and are sealed before the final start gate.
+The backend creates no user or PID namespace and provides no Landlock, cgroup, arbitrary credential, CPU\-time, or execution\-wide process\-count guarantee.
+.PP
+If filesystem, network, or cancellation realization is unavailable or policy\-restricted, the request is rejected before start.
+There is no fallback to a weaker execution policy.
+.SH SEE ALSO
+\f[B]libpkgexec\-linux\f[R](3), \f[B]pkgexec_linux_backend\f[R](3), \f[B]pkgexec_linux_capability\f[R](3), \f[B]pkgexec_linux_limits\f[R](3), \f[B]pkgexec_backend\f[R](3)

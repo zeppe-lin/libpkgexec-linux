@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -eu
 root=${1:?source root required}
+fail(){ echo "test-layout-contract: $*" >&2; exit 1; }
 meson=$root/tests/meson.build
 for directory in contracts fixtures header installed integration privileged support unit; do
   [ -d "$root/tests/$directory" ] || {
@@ -55,3 +56,15 @@ grep -F 'tests/installed/consumer.cpp' "$root/ci/configure-and-test.sh" >/dev/nu
   echo 'test-layout-contract: installed consumer is not part of release qualification' >&2
   exit 1
 }
+
+for contract in "$root"/tests/contracts/check_*.sh; do
+  name=${contract##*/check_}
+  name=${name%.sh}
+  case $name in
+    abi_surface|dependency_abi|pkgconfig_metadata|manpage_generated) continue ;;
+  esac
+  if ! grep -F "'$name'" "$root/tests/meson.build" >/dev/null &&
+     ! grep -F "check_${name}.sh" "$root/tests/meson.build" >/dev/null; then
+    fail "unregistered contract: check_${name}.sh"
+  fi
+done

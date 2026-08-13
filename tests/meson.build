@@ -249,4 +249,34 @@ if get_option('tests').enabled()
     ],
     suite: 'contract',
   )
+  foreach contract : [
+    'repository_contract',
+    'documentation_source',
+    'manpage_source',
+    'manpage_normalizer',
+    'interpreter_authority',
+  ]
+    test(
+      contract.replace('_', '-'),
+      sh,
+      args: [
+        meson.current_source_dir() / ('contracts/check_' + contract + '.sh'),
+        meson.project_source_root(),
+      ],
+      suite: 'contract',
+    )
+  endforeach
+  pandoc = find_program('pandoc', required: false)
+  if pandoc.found()
+    test(
+      'manpage-generated',
+      sh,
+      args: [
+        meson.current_source_dir() / 'contracts/check_manpage_generated.sh',
+        meson.project_source_root(),
+        pandoc.full_path(),
+      ],
+      suite: 'contract',
+    )
+  endif
 endif
