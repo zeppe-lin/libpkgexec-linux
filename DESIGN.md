@@ -29,8 +29,10 @@ It accepts only:
 - a dedicated root-view directory other than `/`;
 - directory-valued resources whose host paths do not overlap the root or each
   other;
-- logical resource destinations that already exist inside the root and do not
-  overlap;
+- exact destinations for singleton/source resources that already exist inside
+  the root and do not overlap;
+- empty parent namespaces for named build/check input trees; the per-input child
+  destinations are execution scaffolding and must not pre-exist in root truth;
 - read-only source/build-input/check-input resources;
 - writable workspace/output/temporary/managed-target resources;
 - the supervisor's current numeric credentials;
@@ -60,18 +62,26 @@ comes from admitted file modes and execution policy rather than the incidental
 mount flags of the host path that stores a root or resource tree.
 
 The child creates a private mount namespace, makes propagation private, mounts
-a private scratch filesystem, attaches the detached root and resource trees
-with `move_mount(2)`, and overlays `/dev` with a private execution-only tmpfs
-containing only deterministic character device `/dev/null`. The `/dev` namespace
-is backend-owned and cannot be occupied by declared resources. The child then
-verifies visible resource inode identities, enters the root with `chroot(2)`,
-drops Linux capabilities, and executes the already-opened interpreter descriptor.
+a private scratch filesystem, and attaches the detached root. For each distinct
+parent of named build/check input resources it overlays the admitted empty root
+directory with a private tmpfs, creates only the child destinations named by the
+sealed request, mounts the exact input trees there, and seals the parent tmpfs
+read-only. Singleton/source resource destinations still have to pre-exist exactly
+in the root. The child attaches those resource trees with `move_mount(2)` and
+overlays `/dev` with a private execution-only tmpfs containing only deterministic
+character device `/dev/null`. The `/dev` namespace is backend-owned and cannot be
+occupied by declared resources. The child then verifies visible resource inode
+identities, enters the root with `chroot(2)`, drops Linux capabilities, and
+executes the already-opened interpreter descriptor.
 
 The root tree is read-only. Writable access exists only through explicitly
 writable resource mounts. Read-only source and input trees are enforced by the
-mount layer. A host resource may not be inside the supplied root, because that
-would expose it both at its undeclared original path and at its declared logical
-path.
+mount layer. Private input-parent tmpfs mounts are also sealed read-only after
+request-named children are attached, so execution cannot manufacture additional
+package-input names. Their corresponding directories in root authority must be
+empty and remain unchanged. A host resource may not be inside the supplied root,
+because that would expose it both at its undeclared original path and at its
+declared logical path.
 
 Detached trees are not recursively cloned. Nested mounts and host
 pseudo-filesystems are not inherited. `/proc`, `/run`, `/tmp`, runtime loaders,

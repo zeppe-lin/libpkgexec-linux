@@ -42,6 +42,13 @@ struct isolated_binding final {
   inode_identity target_identity;
   pkgexec::resource_access access;
   std::string logical_path;
+  bool synthetic_destination = false;
+};
+
+struct isolated_namespace final {
+  std::string logical_path;
+  inode_identity target_identity;
+  std::vector<std::string> children;
 };
 
 class isolated_admission final {
@@ -54,6 +61,7 @@ public:
 
   [[nodiscard]] int root_tree_fd() const noexcept;
   [[nodiscard]] const std::vector<isolated_binding>& bindings() const noexcept;
+  [[nodiscard]] const std::vector<isolated_namespace>& namespaces() const noexcept;
   [[nodiscard]] const std::filesystem::path& scratch_path() const noexcept;
   [[nodiscard]] bool verify_parent_cleanup() noexcept;
 private:
@@ -63,11 +71,13 @@ private:
   friend bool probe_isolated_filesystem(int&) noexcept;
   isolated_admission(owned_fd root_tree,
                      std::vector<isolated_binding> bindings,
+                     std::vector<isolated_namespace> namespaces,
                      std::filesystem::path scratch);
   void cleanup_best_effort() noexcept;
 
   owned_fd root_tree_;
   std::vector<isolated_binding> bindings_;
+  std::vector<isolated_namespace> namespaces_;
   std::filesystem::path scratch_;
   bool cleanup_attempted_ = false;
 };
@@ -78,6 +88,7 @@ enum class mount_setup_stage : std::uint32_t {
   scratch_mount,
   root_tree,
   resource_tree,
+  input_namespace,
   device_filesystem,
   root_entry,
 };

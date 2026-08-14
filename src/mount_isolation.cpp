@@ -17,6 +17,7 @@
 #include <string_view>
 #include <utility>
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <linux/mount.h>
 #include <linux/openat2.h>
@@ -166,6 +167,61 @@ bool writable_by_current_credentials(int fd) noexcept
 #endif
 }
 
+bool directory_is_empty(int fd)
+{
+  const int duplicate = ::dup(fd);
+  if (duplicate < 0) {
+    throw error(error_code::invalid_value,
+                errno_message("duplicate resource namespace", errno));
+  }
+  DIR* directory = ::fdopendir(duplicate);
+  if (!directory) {
+    const int saved = errno;
+    ::close(duplicate);
+    throw error(error_code::invalid_value,
+                errno_message("open resource namespace", saved));
+  }
+  bool empty = true;
+  errno = 0;
+  while (dirent* entry = ::readdir(directory)) {
+    const std::string_view name(entry->d_name);
+    if (name != "." && name != "..") {
+      empty = false;
+      break;
+    }
+    errno = 0;
+  }
+  const int saved = errno;
+  const int closed = ::closedir(directory);
+  if (saved != 0 || closed != 0) {
+    throw error(error_code::invalid_value,
+                errno_message("read resource namespace",
+                              saved != 0 ? saved : errno));
+  }
+  return empty;
+}
+
+bool is_input_role(pkgexec::resource_role role) noexcept
+{
+  return role == pkgexec::resource_role::build_input_tree ||
+         role == pkgexec::resource_role::check_input_tree;
+}
+
+bool seal_namespace_mount(int fd) noexcept
+{
+#ifdef __NR_mount_setattr
+  mount_attr attributes{};
+  attributes.attr_set = MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID |
+                        MOUNT_ATTR_NODEV | MOUNT_ATTR_NOEXEC;
+  return ::syscall(__NR_mount_setattr, fd, "", AT_EMPTY_PATH,
+                   &attributes, sizeof(attributes)) == 0;
+#else
+  (void)fd;
+  errno = ENOSYS;
+  return false;
+#endif
+}
+
 std::filesystem::path make_scratch()
 {
   std::array<char, 64> pattern{};
@@ -302,9 +358,35 @@ bool create_private_root(const isolated_admission& admission,
     return false;
   }
 
+  for (const auto& input_namespace : admission.namespaces()) {
+    owned_fd destination(
+        open_beneath(attached_root.get(), input_namespace.logical_path));
+    if (!destination ||
+        !same_inode(destination.get(), input_namespace.target_identity)) {
+      failure = {mount_setup_stage::input_namespace,
+                 destination ? ESTALE : errno};
+      return false;
+    }
+    const auto namespace_path =
+        root_path / std::filesystem::path(input_namespace.logical_path).relative_path();
+    if (::mount("tmpfs", namespace_path.c_str(), "tmpfs",
+                MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=0755") != 0) {
+      failure = {mount_setup_stage::input_namespace, errno};
+      return false;
+    }
+    for (const auto& child : input_namespace.children) {
+      if (::mkdir((namespace_path / child).c_str(), 0555) != 0) {
+        failure = {mount_setup_stage::input_namespace, errno};
+        return false;
+      }
+    }
+  }
+
   for (const auto& binding : admission.bindings()) {
     owned_fd destination(open_beneath(attached_root.get(), binding.logical_path));
-    if (!destination || !same_inode(destination.get(), binding.target_identity)) {
+    if (!destination ||
+        (!binding.synthetic_destination &&
+         !same_inode(destination.get(), binding.target_identity))) {
       failure = {mount_setup_stage::resource_tree,
                  destination ? ESTALE : errno};
       return false;
@@ -320,6 +402,18 @@ bool create_private_root(const isolated_admission& admission,
     }
     if (!same_inode(visible.get(), binding.source_identity)) {
       failure = {mount_setup_stage::resource_tree, ESTALE};
+      return false;
+    }
+  }
+  for (const auto& input_namespace : admission.namespaces()) {
+    owned_fd namespace_fd(
+        open_beneath(attached_root.get(), input_namespace.logical_path));
+    if (!namespace_fd) {
+      failure = {mount_setup_stage::input_namespace, errno};
+      return false;
+    }
+    if (!seal_namespace_mount(namespace_fd.get())) {
+      failure = {mount_setup_stage::input_namespace, errno};
       return false;
     }
   }
@@ -366,14 +460,14 @@ void owned_fd::reset(int value) noexcept
 
 isolated_admission::isolated_admission(
     owned_fd root_tree, std::vector<isolated_binding> bindings,
-    std::filesystem::path scratch)
+    std::vector<isolated_namespace> namespaces, std::filesystem::path scratch)
     : root_tree_(std::move(root_tree)), bindings_(std::move(bindings)),
-      scratch_(std::move(scratch))
+      namespaces_(std::move(namespaces)), scratch_(std::move(scratch))
 {
 }
 isolated_admission::isolated_admission(isolated_admission&& other) noexcept
     : root_tree_(std::move(other.root_tree_)), bindings_(std::move(other.bindings_)),
-      scratch_(std::move(other.scratch_)),
+      namespaces_(std::move(other.namespaces_)), scratch_(std::move(other.scratch_)),
       cleanup_attempted_(other.cleanup_attempted_)
 {
   other.scratch_.clear();
@@ -385,6 +479,7 @@ isolated_admission& isolated_admission::operator=(isolated_admission&& other) no
     cleanup_best_effort();
     root_tree_ = std::move(other.root_tree_);
     bindings_ = std::move(other.bindings_);
+    namespaces_ = std::move(other.namespaces_);
     scratch_ = std::move(other.scratch_);
     cleanup_attempted_ = other.cleanup_attempted_;
     other.scratch_.clear();
@@ -396,6 +491,8 @@ isolated_admission::~isolated_admission() { cleanup_best_effort(); }
 int isolated_admission::root_tree_fd() const noexcept { return root_tree_.get(); }
 const std::vector<isolated_binding>& isolated_admission::bindings() const noexcept
 { return bindings_; }
+const std::vector<isolated_namespace>& isolated_admission::namespaces() const noexcept
+{ return namespaces_; }
 const std::filesystem::path& isolated_admission::scratch_path() const noexcept
 { return scratch_; }
 void isolated_admission::cleanup_best_effort() noexcept
@@ -445,6 +542,7 @@ isolated_admission admit_isolated_resources(
   std::vector<std::filesystem::path> host_paths;
   std::vector<inode_identity> source_identities;
   std::vector<isolated_binding> admitted;
+  std::vector<isolated_namespace> namespaces;
   admitted.reserve(request.resources().bindings().size());
 
   for (const auto& binding : request.resources().bindings()) {
@@ -498,20 +596,62 @@ isolated_admission admit_isolated_resources(
                   "writable execution resource is not writable by current credentials");
     }
 
-    owned_fd target(open_beneath(root.get(), binding.mount_point().string()));
-    if (!target) {
-      throw error(error_code::invalid_value,
-                  errno_message("open root resource destination", errno));
+    const bool input = is_input_role(binding.slot().role());
+    inode_identity target_identity{};
+    if (input) {
+      const auto parent = logical.parent_path();
+      const std::string child = logical.filename().string();
+      if (parent.empty() || parent == std::filesystem::path("/") ||
+          child.empty()) {
+        throw error(error_code::invalid_value,
+                    "input resource mount point requires a dedicated parent namespace");
+      }
+      owned_fd target_parent(open_beneath(root.get(), parent.string()));
+      if (!target_parent) {
+        throw error(error_code::invalid_value,
+                    errno_message("open root input namespace", errno));
+      }
+      if (!directory_is_empty(target_parent.get())) {
+        throw error(error_code::invalid_value,
+                    "root input namespace must be empty");
+      }
+      const auto parent_identity = identity_of(target_parent.get());
+      auto found = std::find_if(
+          namespaces.begin(), namespaces.end(),
+          [&](const isolated_namespace& value) {
+            return value.logical_path == parent.string();
+          });
+      if (found == namespaces.end()) {
+        namespaces.push_back({parent.string(), parent_identity, {child}});
+      } else {
+        if (!(found->target_identity == parent_identity)) {
+          throw error(error_code::invalid_value,
+                      "root input namespace changed during admission");
+        }
+        found->children.push_back(child);
+      }
+    } else {
+      owned_fd target(open_beneath(root.get(), binding.mount_point().string()));
+      if (!target) {
+        throw error(error_code::invalid_value,
+                    errno_message("open root resource destination", errno));
+      }
+      target_identity = identity_of(target.get());
     }
     auto tree = prepare_tree(source.get(), binding.access());
-    admitted.push_back({std::move(tree), source_identity,
-                        identity_of(target.get()), binding.access(),
-                        binding.mount_point().string()});
+    admitted.push_back({std::move(tree), source_identity, target_identity,
+                        binding.access(), binding.mount_point().string(), input});
+  }
+  for (auto& value : namespaces) {
+    std::sort(value.children.begin(), value.children.end());
+    value.children.erase(
+        std::unique(value.children.begin(), value.children.end()),
+        value.children.end());
   }
   auto root_tree = prepare_tree(
       root.get(), pkgexec::resource_access::read_only);
   return isolated_admission(std::move(root_tree), std::move(admitted),
-                            make_scratch());
+                            std::move(namespaces), make_scratch());
 }
 
 bool setup_isolated_filesystem(const isolated_admission& admission,
@@ -590,7 +730,7 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
     auto root_tree = prepare_tree(
         root.get(), pkgexec::resource_access::read_only);
     admission = isolated_admission(std::move(root_tree),
-                                    std::move(probe_bindings),
+                                    std::move(probe_bindings), {},
                                     make_scratch());
   } catch (...) {
     failure_error = errno == 0 ? EIO : errno;
@@ -682,6 +822,7 @@ std::string_view mount_stage_name(mount_setup_stage stage) noexcept
     case mount_setup_stage::scratch_mount: return "private scratch mount";
     case mount_setup_stage::root_tree: return "root mount tree";
     case mount_setup_stage::resource_tree: return "resource mount tree";
+    case mount_setup_stage::input_namespace: return "private input namespace";
     case mount_setup_stage::device_filesystem: return "private device filesystem";
     case mount_setup_stage::root_entry: return "root-view entry";
   }
