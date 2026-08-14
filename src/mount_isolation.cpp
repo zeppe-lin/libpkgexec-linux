@@ -169,17 +169,20 @@ bool writable_by_current_credentials(int fd) noexcept
 
 bool directory_is_empty(int fd)
 {
-  const int duplicate = ::dup(fd);
-  if (duplicate < 0) {
+  owned_fd readable(::openat(fd, ".",
+                             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW));
+  if (!readable) {
     throw error(error_code::invalid_value,
-                errno_message("duplicate resource namespace", errno));
+                errno_message("open resource namespace", errno));
   }
-  DIR* directory = ::fdopendir(duplicate);
-  if (!directory) {
-    const int saved = errno;
-    ::close(duplicate);
+  if (!same_inode(readable.get(), identity_of(fd))) {
     throw error(error_code::invalid_value,
-                errno_message("open resource namespace", saved));
+                "resource namespace changed before enumeration");
+  }
+  DIR* directory = ::fdopendir(readable.release());
+  if (!directory) {
+    throw error(error_code::invalid_value,
+                errno_message("open resource namespace stream", errno));
   }
   bool empty = true;
   errno = 0;
