@@ -37,11 +37,11 @@ view with request-bound pidfd cancellation. Cancellation before the final start
 gate prevents program execution. Started cancellation preserves complete stream
 capture and requires both process-tree and scratch cleanup verification.
 
-The supplied root must contain all runtime material. Device nodes already
-present in that exact root remain usable; the backend creates no devices and
-imports no ambient host `/dev`. Device nodes supplied through separately
-declared resource mounts remain disabled by `nodev`. Nested mounts and host
-pseudo-filesystems are not inherited. Exact address-space, file-size, and
+The supplied root must contain its interpreter and runtime closure. Persistent
+device nodes in the exact root are not activated because the root and declared
+resources are `nodev`. The backend overlays a private execution-only `/dev`
+containing deterministic `/dev/null` and imports no ambient host `/dev`. Nested
+mounts and host pseudo-filesystems are not inherited. Exact address-space, file-size, and
 open-files limits compose with the private filesystem and network views and are
 sealed before the final start gate. The backend creates no user or PID namespace
 and provides no Landlock, cgroup, arbitrary credential, CPU-time, or

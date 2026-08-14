@@ -33,7 +33,7 @@ The test suite covers:
 - closed environment construction;
 - current-root host admission;
 - dedicated-root isolated admission;
-- exact root-view device-node usability without ambient `/dev` import;
+- private deterministic `/dev/null` without root-device or ambient `/dev` authority;
 - inherited `noexec` normalization for exact root and declared resource trees;
 - exact ELF `PT_INTERP` retention in synthetic runtime roots;
 - no-symlink root and resource opening through `openat2(2)`;

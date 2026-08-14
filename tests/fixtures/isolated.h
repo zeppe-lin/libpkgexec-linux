@@ -77,12 +77,7 @@ public:
     for (const auto& [host, logical] : payloads) {
       runtime_fixture::copy_runtime(root_, host, logical);
     }
-    struct stat null_device {};
-    if (::stat("/dev/null", &null_device) == 0 && S_ISCHR(null_device.st_mode)) {
-      device_node_available_ =
-          ::mknod((root_ / "dev" / "null").c_str(), S_IFCHR | 0666,
-                  null_device.st_rdev) == 0;
-    }
+    std::ofstream(root_ / "dev" / "null") << "root device sentinel\n";
     std::ofstream(source_ / "input") << "source\n";
   }
 
@@ -98,17 +93,11 @@ public:
   {
     return workspace_;
   }
-  [[nodiscard]] bool device_node_available() const noexcept
-  {
-    return device_node_available_;
-  }
-
 private:
   test_support::temporary_directory temporary_;
   std::filesystem::path root_;
   std::filesystem::path source_;
   std::filesystem::path workspace_;
-  bool device_node_available_ = false;
 };
 
 inline pkgexec::execution_request request(

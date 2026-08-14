@@ -23,6 +23,7 @@
 #include <sched.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -200,18 +201,12 @@ int clone_tree(int source_fd) noexcept
 #endif
 }
 
-bool set_tree_access(int tree_fd, pkgexec::resource_access access,
-                     bool allow_devices) noexcept
+bool set_tree_access(int tree_fd, pkgexec::resource_access access) noexcept
 {
 #ifdef __NR_mount_setattr
   mount_attr attributes{};
-  attributes.attr_set = MOUNT_ATTR_NOSUID;
+  attributes.attr_set = MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV;
   attributes.attr_clr = MOUNT_ATTR_NOEXEC;
-  if (allow_devices) {
-    attributes.attr_clr |= MOUNT_ATTR_NODEV;
-  } else {
-    attributes.attr_set |= MOUNT_ATTR_NODEV;
-  }
   if (access == pkgexec::resource_access::read_only) {
     attributes.attr_set |= MOUNT_ATTR_RDONLY;
   } else {
@@ -222,21 +217,19 @@ bool set_tree_access(int tree_fd, pkgexec::resource_access access,
 #else
   (void)tree_fd;
   (void)access;
-  (void)allow_devices;
   errno = ENOSYS;
   return false;
 #endif
 }
 
-owned_fd prepare_tree(int source_fd, pkgexec::resource_access access,
-                      bool allow_devices = false)
+owned_fd prepare_tree(int source_fd, pkgexec::resource_access access)
 {
   owned_fd tree(clone_tree(source_fd));
   if (!tree) {
     throw error(error_code::invalid_value,
                 errno_message("clone exact mount tree", errno));
   }
-  if (!set_tree_access(tree.get(), access, allow_devices)) {
+  if (!set_tree_access(tree.get(), access)) {
     throw error(error_code::invalid_value,
                 errno_message("set exact mount-tree access", errno));
   }
@@ -288,6 +281,27 @@ bool create_private_root(const isolated_admission& admission,
     failure = {mount_setup_stage::root_tree, errno};
     return false;
   }
+
+  const auto device_path = root_path / "dev";
+  struct stat device_directory {};
+  if (::lstat(device_path.c_str(), &device_directory) != 0 ||
+      !S_ISDIR(device_directory.st_mode)) {
+    failure = {mount_setup_stage::device_filesystem,
+               errno == 0 ? ENOTDIR : errno};
+    return false;
+  }
+  if (::mount("tmpfs", device_path.c_str(), "tmpfs",
+              MS_NOSUID | MS_NOEXEC, "mode=0755,size=64k") != 0) {
+    failure = {mount_setup_stage::device_filesystem, errno};
+    return false;
+  }
+  const auto null_path = device_path / "null";
+  if (::mknod(null_path.c_str(), S_IFCHR | 0666, makedev(1, 3)) != 0 ||
+      ::chmod(null_path.c_str(), 0666) != 0) {
+    failure = {mount_setup_stage::device_filesystem, errno};
+    return false;
+  }
+
   for (const auto& binding : admission.bindings()) {
     owned_fd destination(open_beneath(attached_root.get(), binding.logical_path));
     if (!destination || !same_inode(destination.get(), binding.target_identity)) {
@@ -440,6 +454,10 @@ isolated_admission admit_isolated_resources(
       throw error(error_code::invalid_value,
                   "execution resources cannot replace the root view");
     }
+    if (path_contains(std::filesystem::path("/dev"), logical)) {
+      throw error(error_code::invalid_value,
+                  "execution resources cannot occupy backend-owned /dev");
+    }
     for (const auto& existing : logical_paths) {
       if (path_contains(existing, logical) || path_contains(logical, existing)) {
         throw error(error_code::invalid_value,
@@ -491,7 +509,7 @@ isolated_admission admit_isolated_resources(
                         binding.mount_point().string()});
   }
   auto root_tree = prepare_tree(
-      root.get(), pkgexec::resource_access::read_only, true);
+      root.get(), pkgexec::resource_access::read_only);
   return isolated_admission(std::move(root_tree), std::move(admitted),
                             make_scratch());
 }
@@ -532,15 +550,18 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
   const std::filesystem::path base(created);
   const auto view = base / "view";
   const auto target_path = view / "resource";
+  const auto device_path = view / "dev";
   const auto material = base / "material";
   auto cleanup_fixture = [&]() noexcept {
     (void)::rmdir(material.c_str());
     (void)::rmdir(target_path.c_str());
+    (void)::rmdir(device_path.c_str());
     (void)::rmdir(view.c_str());
     (void)::rmdir(base.c_str());
   };
   if (::mkdir(view.c_str(), 0700) != 0 ||
       ::mkdir(target_path.c_str(), 0700) != 0 ||
+      ::mkdir(device_path.c_str(), 0700) != 0 ||
       ::mkdir(material.c_str(), 0700) != 0) {
     failure_error = errno;
     cleanup_fixture();
@@ -567,7 +588,7 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
                               pkgexec::resource_access::read_only,
                               "/resource"});
     auto root_tree = prepare_tree(
-        root.get(), pkgexec::resource_access::read_only, true);
+        root.get(), pkgexec::resource_access::read_only);
     admission = isolated_admission(std::move(root_tree),
                                     std::move(probe_bindings),
                                     make_scratch());
@@ -604,6 +625,18 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
     if (!setup_isolated_filesystem(*admission, failure)) {
       send_failure(failure.error);
     }
+    struct stat null_info {};
+    if (::stat("/dev/null", &null_info) != 0 || !S_ISCHR(null_info.st_mode)) {
+      send_failure(errno == 0 ? ENODEV : errno);
+    }
+    const int null_fd = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+    if (null_fd < 0) {
+      send_failure(errno);
+    }
+    const unsigned char byte = 0;
+    if (::write(null_fd, &byte, 1) != 1 || ::close(null_fd) != 0) {
+      send_failure(errno == 0 ? EIO : errno);
+    }
     if (!drop_process_capabilities()) {
       send_failure(errno);
     }
@@ -622,6 +655,7 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
   bool fixture_cleaned = true;
   fixture_cleaned = (::rmdir(material.c_str()) == 0) && fixture_cleaned;
   fixture_cleaned = (::rmdir(target_path.c_str()) == 0) && fixture_cleaned;
+  fixture_cleaned = (::rmdir(device_path.c_str()) == 0) && fixture_cleaned;
   fixture_cleaned = (::rmdir(view.c_str()) == 0) && fixture_cleaned;
   fixture_cleaned = (::rmdir(base.c_str()) == 0) && fixture_cleaned;
   if (!scratch_cleaned || !fixture_cleaned) {
@@ -648,6 +682,7 @@ std::string_view mount_stage_name(mount_setup_stage stage) noexcept
     case mount_setup_stage::scratch_mount: return "private scratch mount";
     case mount_setup_stage::root_tree: return "root mount tree";
     case mount_setup_stage::resource_tree: return "resource mount tree";
+    case mount_setup_stage::device_filesystem: return "private device filesystem";
     case mount_setup_stage::root_entry: return "root-view entry";
   }
   return "mount isolation";

@@ -18,11 +18,11 @@ credentials, exact interpreter bytes, a closed environment, complete pipe
 capture, and verified process-tree cleanup.
 
 **isolated_backend** constructs a private mount namespace from one exact dedicated
-root-view directory. It clones that root read-only and **nosuid**, preserving
-device nodes already present in the exact supplied root, and attaches admitted
-read-only or writable directory resources at their declared logical paths with
-**nodev**. The root must contain the interpreter and complete runtime closure; the
-backend imports no ambient host _/dev_.
+root-view directory. It clones that root read-only, **nosuid**, and **nodev**, and
+attaches admitted read-only or writable directory resources at their declared
+logical paths with **nodev**. The root must contain the interpreter and complete
+runtime closure. The backend overlays a private execution-only _/dev_ containing
+deterministic _/dev/null_ and imports no ambient host _/dev_.
 
 For **allowed** networking the isolated backend preserves the caller's network
 namespace. For **denied** networking it creates a private network namespace with

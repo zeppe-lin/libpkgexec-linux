@@ -8,7 +8,9 @@
 #include <libpkgexec-linux/libpkgexec-linux.h>
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <string>
 
 namespace {
 
@@ -54,16 +56,15 @@ int test()
   CHECK(!std::filesystem::exists(material.source() / "forbidden"));
   CHECK(!std::filesystem::exists(material.root() / "root-only" / "forbidden"));
 
-  if (!material.device_node_available()) {
-    std::cerr << "libpkgexec-linux:isolated:filesystem: exact-root device "
-                 "fixture unavailable\n";
-    return 77;
-  }
   auto device_request = request(
       shell, network_policy::allowed,
       "test -c /dev/null && printf discarded > /dev/null");
   auto device = backend.execute(device_request, resources(device_request, material));
-  test_support::require_success(device, "isolated root device execution");
+  test_support::require_success(device, "isolated private null-device execution");
+  std::ifstream root_null(material.root() / "dev" / "null");
+  std::string root_null_line;
+  CHECK(static_cast<bool>(std::getline(root_null, root_null_line)));
+  CHECK(root_null_line == "root device sentinel");
 
   const auto symlink = material.workspace().parent_path() / "source-link";
   std::filesystem::create_directory_symlink(material.source(), symlink);

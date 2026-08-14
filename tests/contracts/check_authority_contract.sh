@@ -36,21 +36,18 @@ grep -q 'cannot overlap the root view' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource overlap rejection missing'
 grep -q 'move_mount' "$root/src/mount_isolation.cpp" ||
   fail 'descriptor mount attachment missing'
-grep -q 'bool allow_devices' "$root/src/mount_isolation.cpp" ||
-  fail 'root/resource device policy is not explicit'
-grep -q 'if (allow_devices)' "$root/src/mount_isolation.cpp" ||
-  fail 'exact root device policy missing'
-grep -q 'attributes.attr_clr |= MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" ||
-  fail 'exact root does not clear inherited nodev'
+grep -q 'MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" ||
+  fail 'root/resource device authority is not sealed nodev'
 grep -q 'attributes.attr_clr = MOUNT_ATTR_NOEXEC' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource execution inherits ambient noexec'
-grep -q 'attributes.attr_set |= MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" ||
-  fail 'declared resources are not sealed nodev'
-grep -q 'root.get(), pkgexec::resource_access::read_only, true' \
-    "$root/src/mount_isolation.cpp" ||
-  fail 'exact root device semantics are not preserved explicitly'
-grep -q 'root device execution' "$root/tests/privileged/isolated_filesystem_test.cpp" ||
-  fail 'exact root device semantics lack runtime qualification'
+grep -q 'MS_NOSUID | MS_NOEXEC' "$root/src/mount_isolation.cpp" ||
+  fail 'private device filesystem policy is absent'
+grep -q 'makedev(1, 3)' "$root/src/mount_isolation.cpp" ||
+  fail 'private null-device authority is absent'
+grep -q 'backend-owned /dev' "$root/src/mount_isolation.cpp" ||
+  fail 'executor-owned device namespace is not reserved'
+grep -q 'private null-device execution' "$root/tests/privileged/isolated_filesystem_test.cpp" ||
+  fail 'private null-device runtime qualification is absent'
 grep -q 'setup_network_policy' "$root/src/backend.cpp" ||
   fail 'network policy is not wired into child setup'
 grep -q 'CLONE_NEWNET' "$root/src/network_isolation.cpp" ||

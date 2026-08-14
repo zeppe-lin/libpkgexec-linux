@@ -78,6 +78,7 @@ enum class mount_setup_stage : std::uint32_t {
   scratch_mount,
   root_tree,
   resource_tree,
+  device_filesystem,
   root_entry,
 };
 

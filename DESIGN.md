@@ -51,19 +51,21 @@ is silently weakened.
 The parent opens every supplied root and resource directory once with
 `openat2(2)` using no-symlink and no-magic-link resolution. It records source
 and destination inode identities, creates detached mount trees with
-`open_tree(2)` before the child starts. The exact root clone is made read-only
-and `nosuid`, clears inherited `noexec`, and preserves device-node semantics already authorized by that root view by
-clearing inherited `nodev`. Every separately declared resource tree is made
-`nosuid` and `nodev`, clears inherited `noexec`, and receives its exact read-only
-or writable attribute through `mount_setattr(2)`. Execution permission therefore
+`open_tree(2)` before the child starts. The exact root clone is made read-only,
+`nosuid`, and `nodev`, and clears inherited `noexec`. Every separately declared
+resource tree is also `nosuid` and `nodev`, clears inherited `noexec`, and
+receives its exact read-only or writable attribute through `mount_setattr(2)`.
+Execution permission therefore
 comes from admitted file modes and execution policy rather than the incidental
 mount flags of the host path that stores a root or resource tree.
 
 The child creates a private mount namespace, makes propagation private, mounts
 a private scratch filesystem, attaches the detached root and resource trees
-with `move_mount(2)`, verifies the visible inode identities, enters the exact
-root with `chroot(2)`, drops Linux capabilities, and executes the already-opened
-interpreter descriptor.
+with `move_mount(2)`, and overlays `/dev` with a private execution-only tmpfs
+containing only deterministic character device `/dev/null`. The `/dev` namespace
+is backend-owned and cannot be occupied by declared resources. The child then
+verifies visible resource inode identities, enters the root with `chroot(2)`,
+drops Linux capabilities, and executes the already-opened interpreter descriptor.
 
 The root tree is read-only. Writable access exists only through explicitly
 writable resource mounts. Read-only source and input trees are enforced by the
@@ -72,12 +74,13 @@ would expose it both at its undeclared original path and at its declared logical
 path.
 
 Detached trees are not recursively cloned. Nested mounts and host
-pseudo-filesystems are not inherited. `/proc`, `/dev`, `/run`, `/tmp`, runtime
-loaders, shared libraries, and other execution material exist only when the
-supplied root contains them or the request declares an explicit resource at the
-required logical path. Device nodes already present in the exact root remain
-usable; the backend creates none and never imports ambient host `/dev`. Device
-nodes from separately declared resource mounts remain disabled by `nodev`.
+pseudo-filesystems are not inherited. `/proc`, `/run`, `/tmp`, runtime loaders,
+shared libraries, and other execution material exist only when the supplied root
+contains them or the request declares an explicit resource at the required
+logical path. `/dev` is the deliberate exception: isolated execution replaces it
+with a private tmpfs containing only `/dev/null`. The root tree and separately
+declared resources remain `nodev`, so persistent root device nodes are never
+activated and ambient host `/dev` is never imported.
 
 The backend does not create a user namespace. A caller or test environment may
 provide delegated mount authority externally, but that delegation is not part

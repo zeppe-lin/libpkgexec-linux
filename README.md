@@ -11,9 +11,10 @@ The 0.6 release line provides two truthful controlled backends:
 - `isolated_backend` realizes one exact dedicated root-view directory in a
   private mount namespace, attaches exact read-only or writable resource
   directories, and enforces allowed, denied, or loopback-only networking. The
-  exact root is read-only and `nosuid`, actively clears inherited `nodev`, and
-  preserves caller-supplied device-node semantics; all admitted root/resource
-  trees clear inherited `noexec`, while declared resource mounts remain `nodev`.
+  exact root is read-only, `nosuid`, and `nodev`; all admitted root/resource
+  trees clear inherited `noexec`. The backend owns a private execution-only
+  `/dev` containing deterministic `/dev/null`; persistent root device nodes and
+  ambient host `/dev` are not execution authority.
 
 Both backends realize exact address-space, file-size, and open-files limits
 when their end-to-end probes succeed. Requested values become both the soft and

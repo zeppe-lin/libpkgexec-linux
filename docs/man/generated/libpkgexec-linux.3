@@ -11,8 +11,9 @@ libpkgexec\-linux \- Linux execution backends for libpkgexec
 \f[B]host_supervisor_backend\f[R] uses the current root and network views, current credentials, exact interpreter bytes, a closed environment, complete pipe capture, and verified process\-tree cleanup.
 .PP
 \f[B]isolated_backend\f[R] constructs a private mount namespace from one exact dedicated root\-view directory.
-It clones that root read\-only and \f[B]nosuid\f[R], preserving device nodes already present in the exact supplied root, and attaches admitted read\-only or writable directory resources at their declared logical paths with \f[B]nodev\f[R].
-The root must contain the interpreter and complete runtime closure; the backend imports no ambient host \f[I]/dev\f[R].
+It clones that root read\-only, \f[B]nosuid\f[R], and \f[B]nodev\f[R], and attaches admitted read\-only or writable directory resources at their declared logical paths with \f[B]nodev\f[R].
+The root must contain the interpreter and complete runtime closure.
+The backend overlays a private execution\-only \f[I]/dev\f[R] containing deterministic \f[I]/dev/null\f[R] and imports no ambient host \f[I]/dev\f[R].
 .PP
 For \f[B]allowed\f[R] networking the isolated backend preserves the caller\[aq]s network namespace.
 For \f[B]denied\f[R] networking it creates a private network namespace with only administratively down loopback.
