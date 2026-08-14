@@ -13,9 +13,9 @@ qualify=$root/ci/qualify.sh
 for text in 'GCC shared' 'GCC static' 'Clang shared' 'Clang static' 'GCC release' 'address,undefined'; do
   grep -F "$text" "$workflow" >/dev/null || fail "workflow omits $text"
 done
-grep -F 'd5f30663a4e56c2319f301ca762741106dea1bd0' "$workflow" >/dev/null ||
-  fail 'workflow does not pin exact libpkgsource 4.0.0 authority'
-grep -F 'ref: v2.1.0' "$workflow" >/dev/null || fail 'workflow does not select immutable libpkgexec v2.1.0'
+grep -F 'ref: v4.1.0' "$workflow" >/dev/null ||
+  fail 'workflow does not select immutable libpkgsource v4.1.0'
+grep -F 'ref: v2.1.1' "$workflow" >/dev/null || fail 'workflow does not select immutable libpkgexec v2.1.1'
 ! grep -F 'Verify execution authority tree' "$workflow" >/dev/null || fail 'obsolete moving-tree verification remains'
 for text in 'meson install -C "$build/product"' 'tests/installed/consumer.cpp' 'pkg-config --static --libs libpkgexec-linux' 'LD_LIBRARY_PATH='; do
   grep -F "$text" "$runner" >/dev/null || fail "runner omits installed-product gate: $text"

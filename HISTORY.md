@@ -1,5 +1,17 @@
 # libpkgexec-linux history
 
+## libpkgexec-linux 0.6.2
+
+Source-ABI-4 qualification release.
+
+- Require `libpkgexec >= 2.1.1, < 3.0.0`, the first execution-core
+  release whose direct source dependency is version-addressably bound to
+  `libpkgsource 4.x`.
+- Qualify the Linux backend against immutable `libpkgsource 4.0.0` and
+  `libpkgexec 2.1.1` authority.
+- Keep API generation 2 and SONAME 2 unchanged; this release closes the
+  dependency graph rather than changing the Linux backend ABI.
+
 ## libpkgexec-linux 0.6.1
 
 Nonblocking interpreter-authority maintenance release.

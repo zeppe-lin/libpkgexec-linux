@@ -3,7 +3,7 @@
 project(
   'libpkgexec-linux',
   'cpp',
-  version: '0.6.1',
+  version: '0.6.2',
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.2.0',
   default_options: [
@@ -40,7 +40,7 @@ libpkgsource_dep = dependency(
 )
 libpkgexec_dep = dependency(
   'libpkgexec',
-  version: ['>=2.0.0', '<3.0.0'],
+  version: ['>=2.1.1', '<3.0.0'],
   required: true,
   static: want_static,
   fallback: ['libpkgexec', 'libpkgexec_dep'],

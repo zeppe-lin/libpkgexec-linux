@@ -1,4 +1,4 @@
-% PKGEXEC_LINUX_LIMITS(3) libpkgexec-linux | Version 0.6.1
+% PKGEXEC_LINUX_LIMITS(3) libpkgexec-linux | Version 0.6.2
 
 
 # NAME

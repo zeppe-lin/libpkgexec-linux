@@ -1,5 +1,11 @@
 # libpkgexec-linux migration
 
+
+`libpkgexec-linux 0.6.2` keeps `libpkgexec-linux.so.2` but closes the provider
+set on `libpkgsource >= 4.0.0, < 5.0.0` and `libpkgexec >= 2.1.1, < 3.0.0`.
+Rebuild consumers and do not mix the source-3-linked 0.6.1 backend with the
+source-4 native execution closure. Linux execution semantics are unchanged.
+
 `libpkgexec-linux 0.6.0` advances to `libpkgexec-linux.so.2` and requires
 `libpkgexec >= 2.0.0, < 3.0.0` plus direct `libpkgsource >= 3.0.1, < 4.0.0`.
 Recompile consumers against the generation-2

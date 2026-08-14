@@ -42,6 +42,6 @@ backend calls `pkgsource::program::material()` itself, so source authority is a 
 production dependency rather than an inherited pkg-config accident. Source-compatible
 compilation alone is insufficient.
 
-Hosted CI must build the exact source-3 + exec-2 closure used by the current
+Hosted CI must build the exact source-4 + exec-2 closure used by the current
 release. Updating a dependency generation without updating the hosted checkout
 and installed-product qualification is a release-blocking defect.

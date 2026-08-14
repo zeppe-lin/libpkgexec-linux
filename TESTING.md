@@ -111,7 +111,7 @@ in-tree test executables. Shared builds require the exact reviewed ELF ABI,
 The x86-64 layout contract freezes the exec2 carriers
 embedded by the Linux backend together with the Linux-owned public values.
 
-`ci/configure-and-test.sh` builds and installs source3, exec2, then this project
+`ci/configure-and-test.sh` builds and installs source4, exec2, then this project
 into isolated prefixes and compiles `tests/installed/consumer.cpp` only through
 the generated pkg-config metadata. `ci/qualify.sh` repeats the product under GCC
 and Clang, shared and static, plus ASan/UBSan shared qualification. Hosted CI
