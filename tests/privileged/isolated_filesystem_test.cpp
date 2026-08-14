@@ -107,10 +107,11 @@ int test()
   auto input_request = execution_request::seal(
       pkgsource::program(
           pkgsource::program_language::posix_shell,
-          "test \"$(cat /inputs/first/value)\" = first && "
-          "test \"$(cat /inputs/second/value)\" = second && "
+          "IFS= read -r first < /inputs/first/value && "
+          "IFS= read -r second < /inputs/second/value && "
+          "case \"$first:$second\" in first:second) ;; *) exit 1 ;; esac && "
           "! ( : > /inputs/first/forbidden ) 2>/workspace/input-error && "
-          "! mkdir /inputs/third 2>/workspace/namespace-error"),
+          "! ( : > /inputs/third ) 2>/workspace/namespace-error"),
       execution_purpose::build(), shell.identity(), root_identity(),
       std::move(input_layout), std::move(input_environment),
       credential_policy::fixed(
