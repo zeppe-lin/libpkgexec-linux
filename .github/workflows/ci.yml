@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zeppe-lin/libpkgsource
-          ref: 9a2a85c85c20bbfa77306f3eb14ccc67ac1e800c
+          ref: d5f30663a4e56c2319f301ca762741106dea1bd0
           path: dependencies/libpkgsource
       - uses: actions/checkout@v4
         with:
@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: zeppe-lin/libpkgsource
-          ref: 9a2a85c85c20bbfa77306f3eb14ccc67ac1e800c
+          ref: d5f30663a4e56c2319f301ca762741106dea1bd0
           path: dependencies/libpkgsource
       - uses: actions/checkout@v4
         with:

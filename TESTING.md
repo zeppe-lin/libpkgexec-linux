@@ -107,7 +107,7 @@ report that condition separately from backend behavior.
 The 0.6 release additionally freezes the installed product rather than only the
 in-tree test executables. Shared builds require the exact reviewed ELF ABI,
 `SONAME libpkgexec-linux.so.2`, direct `NEEDED libpkgexec.so.2` and
-`NEEDED libpkgsource.so.3` edges, while refusing obsolete execution/source generations.
+`NEEDED libpkgsource.so.4` edges, while refusing obsolete execution/source generations.
 The x86-64 layout contract freezes the exec2 carriers
 embedded by the Linux backend together with the Linux-owned public values.
 
