@@ -10,7 +10,7 @@ for page in libpkgexec-linux.3 pkgexec_linux_backend.3 pkgexec_linux_capability.
   [ -s "$source" ] || fail "missing canonical source: $page.md"
   [ -s "$generated" ] || fail "missing committed generated roff: $page"
   first=$(sed -n '1p' "$source")
-  printf '%s\n' "$first" | grep -F '| Version 0.6.2' >/dev/null || fail "wrong manual version title: $page"
+  printf '%s\n' "$first" | grep -F '| Version 0.7.0' >/dev/null || fail "wrong manual version title: $page"
   grep -F '# NAME' "$source" >/dev/null || fail "NAME section missing: $page"
 done
 [ ! -e "$root/man" ] || fail 'legacy root man/ authority remains'

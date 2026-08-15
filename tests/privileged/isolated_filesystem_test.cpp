@@ -138,6 +138,51 @@ int test()
   CHECK(occupied_input_result.failure() ==
         execution_failure_kind::resource_admission_failed);
 
+  const auto checked_package =
+      material.workspace().parent_path() / "checked-package";
+  std::filesystem::create_directories(checked_package);
+  std::ofstream(checked_package / "value") << "checked package\n";
+  const auto package_slot =
+      resource_slot::singleton(resource_role::package_tree);
+  auto package_layout = resource_layout::seal(
+      {
+          resource_binding(package_slot, resource("checked-package"),
+                           resource_access::read_only,
+                           logical_path::parse("/check/package")),
+          resource_binding(workspace_slot, resource("workspace"),
+                           resource_access::writable,
+                           logical_path::parse("/workspace")),
+      },
+      package_slot);
+  auto package_environment = environment_policy::hermetic(
+      {logical_path::parse("/bin"), logical_path::parse("/usr/bin")},
+      logical_path::parse("/workspace"), logical_path::parse("/workspace"),
+      1U, 0022, std::nullopt, network_policy::allowed,
+      stdin_policy::null_device, stream_policy::capture_complete,
+      stream_policy::capture_complete);
+  auto package_request = execution_request::seal(
+      pkgsource::program(
+          pkgsource::program_language::posix_shell,
+          "IFS= read -r value < /check/package/value && "
+          "[ \"$value\" = \"checked package\" ] && "
+          "! ( : > /check/package/forbidden ) 2>/workspace/package-error"),
+      execution_purpose::check(), shell.identity(), root_identity(),
+      std::move(package_layout), std::move(package_environment),
+      credential_policy::fixed(
+          static_cast<std::uint64_t>(::getuid()),
+          static_cast<std::uint64_t>(::getgid()), groups(), true),
+      resource_limits::make(), cancellation_policy::disabled());
+  auto package_resources = execution_resources::admit(
+      package_request, root_identity(), material.root(),
+      {
+          resource_materialization(resource("checked-package"), checked_package),
+          resource_materialization(resource("workspace"), material.workspace()),
+      });
+  auto package_result = backend.execute(package_request, package_resources);
+  test_support::require_success(package_result,
+                                "isolated checked-package execution");
+  CHECK(!std::filesystem::exists(checked_package / "forbidden"));
+
   const auto symlink = material.workspace().parent_path() / "source-link";
   std::filesystem::create_directory_symlink(material.source(), symlink);
   auto bad_resources = execution_resources::admit(

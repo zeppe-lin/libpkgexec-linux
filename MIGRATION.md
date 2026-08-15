@@ -1,5 +1,13 @@
 # libpkgexec-linux migration
 
+## 0.7.0
+
+`libpkgexec-linux 0.7.0` requires `libpkgexec >= 2.2.0, < 3.0.0` and
+understands the singleton read-only `package_tree` role. Unlike
+`build_input_tree` and `check_input_tree`, the package subject is not a child of
+a backend-created input namespace: its exact logical destination must already
+exist in the supplied root view. The SONAME remains 2.
+
 
 `libpkgexec-linux 0.6.2` keeps `libpkgexec-linux.so.2` but closes the provider
 set on `libpkgsource >= 4.0.0, < 5.0.0` and `libpkgexec >= 2.1.1, < 3.0.0`.

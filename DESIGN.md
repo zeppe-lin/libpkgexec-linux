@@ -29,11 +29,11 @@ It accepts only:
 - a dedicated root-view directory other than `/`;
 - directory-valued resources whose host paths do not overlap the root or each
   other;
-- exact destinations for singleton/source resources that already exist inside
-  the root and do not overlap;
+- exact destinations for singleton/source resources, including a checked-package
+  tree, that already exist inside the root and do not overlap;
 - empty parent namespaces for named build/check input trees; the per-input child
   destinations are execution scaffolding and must not pre-exist in root truth;
-- read-only source/build-input/check-input resources;
+- read-only source/package/build-input/check-input resources;
 - writable workspace/output/temporary/managed-target resources;
 - the supervisor's current numeric credentials;
 - allowed, denied, or loopback-only networking;
@@ -66,8 +66,8 @@ a private scratch filesystem, and attaches the detached root. For each distinct
 parent of named build/check input resources it overlays the admitted empty root
 directory with a private tmpfs, creates only the child destinations named by the
 sealed request, mounts the exact input trees there, and seals the parent tmpfs
-read-only. Singleton/source resource destinations still have to pre-exist exactly
-in the root. The child attaches those resource trees with `move_mount(2)` and
+read-only. Singleton/source resource destinations, including checked-package trees, still
+have to pre-exist exactly in the root. The child attaches those resource trees with `move_mount(2)` and
 overlays `/dev` with a private execution-only tmpfs containing only deterministic
 character device `/dev/null`. The `/dev` namespace is backend-owned and cannot be
 occupied by declared resources. The child then verifies visible resource inode

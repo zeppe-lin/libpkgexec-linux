@@ -19,7 +19,7 @@ if [ ! -s "$metadata" ]; then
 fi
 [ -n "${metadata:-}" ] && [ -s "$metadata" ] || fail 'generated libpkgexec-linux.pc was not found'
 [ "$(sed -n 's/^Name:[[:space:]]*//p' "$metadata")" = libpkgexec-linux ] || fail 'wrong module name'
-[ "$(sed -n 's/^Version:[[:space:]]*//p' "$metadata")" = 0.6.2 ] || fail 'wrong module version'
+[ "$(sed -n 's/^Version:[[:space:]]*//p' "$metadata")" = 0.7.0 ] || fail 'wrong module version'
 normalize_requirements()
 {
   sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
@@ -27,19 +27,19 @@ normalize_requirements()
       -e 's/ *\([<>]=\|[<>=]\) */ \1 /' -e '/^$/d'
 }
 requires=$(sed -n 's/^Requires:[[:space:]]*//p' "$metadata" | tr ',' '\n' | normalize_requirements)
-expected='libpkgexec >= 2.1.1
+expected='libpkgexec >= 2.2.0
 libpkgexec < 3.0.0
 libpkgsource >= 4.0.0
 libpkgsource < 5.0.0'
 for requirement in \
-  'libpkgexec >= 2.1.1' 'libpkgexec < 3.0.0' \
+  'libpkgexec >= 2.2.0' 'libpkgexec < 3.0.0' \
   'libpkgsource >= 4.0.0' 'libpkgsource < 5.0.0'
 do
   count=$(printf '%s\n' "$requires" | grep -Fxc "$requirement" || true)
   [ "$count" -eq 1 ] || fail "metadata contains $count copies of '$requirement', expected exactly one"
 done
 [ "$(printf '%s\n' "$requires" | LC_ALL=C sort)" = "$(printf '%s\n' "$expected" | LC_ALL=C sort)" ] ||
-  fail 'public requirements are not the exact exec-2.1.1/source-4 intervals'
+  fail 'public requirements are not the exact exec-2.2.0/source-4 intervals'
 private=$(sed -n 's/^Requires\.private:[[:space:]]*//p' "$metadata" | tr ',' '\n' | normalize_requirements)
 [ "$private" = libcrypto ] || fail "private requirements are '$private', expected libcrypto"
 libs=$(sed -n 's/^Libs:[[:space:]]*//p' "$metadata")

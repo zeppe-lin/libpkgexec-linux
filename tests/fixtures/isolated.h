@@ -70,7 +70,7 @@ public:
     workspace_ = temporary_.path() / "workspace";
     for (const auto& directory :
          {root_, source_, workspace_, root_ / "source", root_ / "workspace",
-          root_ / "root-only", root_ / "dev"}) {
+          root_ / "root-only", root_ / "dev", root_ / "check" / "package"}) {
       std::filesystem::create_directories(directory);
     }
     runtime_fixture::copy_runtime(root_, interpreter.executable());

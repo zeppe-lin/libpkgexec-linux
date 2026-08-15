@@ -1,5 +1,17 @@
 # libpkgexec-linux history
 
+## libpkgexec-linux 0.7.0
+
+Checked-package role qualification release.
+
+- Require `libpkgexec >= 2.2.0, < 3.0.0` and admit the new singleton
+  `package_tree` resource only as read-only execution authority.
+- Keep `package_tree` outside the backend-owned build/check input namespaces;
+  its exact logical destination is caller-owned root-view structure.
+- Qualify an isolated check that consumes `/check/package`, rejects writes to
+  the checked package, and leaves the host package tree unchanged.
+- Keep API generation 2 and SONAME 2 unchanged.
+
 ## libpkgexec-linux 0.6.2
 
 Source-ABI-4 qualification release.

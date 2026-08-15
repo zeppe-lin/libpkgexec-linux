@@ -140,10 +140,11 @@ void validate_role_access(const pkgexec::resource_binding& binding)
   const auto access = binding.access();
   if ((role == resource_role::source_tree ||
        role == resource_role::build_input_tree ||
-       role == resource_role::check_input_tree) &&
+       role == resource_role::check_input_tree ||
+       role == resource_role::package_tree) &&
       access != resource_access::read_only) {
     throw error(error_code::invalid_value,
-                "source and package-input resources must be read-only");
+                "source, package, and package-input resources must be read-only");
   }
   if ((role == resource_role::build_workspace ||
        role == resource_role::package_output_root ||

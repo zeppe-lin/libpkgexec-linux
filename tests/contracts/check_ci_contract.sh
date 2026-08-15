@@ -15,7 +15,7 @@ for text in 'GCC shared' 'GCC static' 'Clang shared' 'Clang static' 'GCC release
 done
 grep -F 'ref: v4.1.0' "$workflow" >/dev/null ||
   fail 'workflow does not select immutable libpkgsource v4.1.0'
-grep -F 'ref: v2.1.1' "$workflow" >/dev/null || fail 'workflow does not select immutable libpkgexec v2.1.1'
+grep -F 'ref: v2.2.0' "$workflow" >/dev/null || fail 'workflow does not select immutable libpkgexec v2.2.0'
 ! grep -F 'Verify execution authority tree' "$workflow" >/dev/null || fail 'obsolete moving-tree verification remains'
 for text in 'meson install -C "$build/product"' 'tests/installed/consumer.cpp' 'pkg-config --static --libs libpkgexec-linux' 'LD_LIBRARY_PATH='; do
   grep -F "$text" "$runner" >/dev/null || fail "runner omits installed-product gate: $text"
