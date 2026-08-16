@@ -282,20 +282,6 @@ bool set_tree_access(int tree_fd, pkgexec::resource_access access) noexcept
 #endif
 }
 
-owned_fd prepare_tree(int source_fd, pkgexec::resource_access access)
-{
-  owned_fd tree(clone_tree(source_fd));
-  if (!tree) {
-    throw error(error_code::invalid_value,
-                errno_message("clone exact mount tree", errno));
-  }
-  if (!set_tree_access(tree.get(), access)) {
-    throw error(error_code::invalid_value,
-                errno_message("set exact mount-tree access", errno));
-  }
-  return tree;
-}
-
 bool attach_tree(int tree_fd, int target_fd) noexcept
 {
 #ifdef __NR_move_mount
@@ -312,6 +298,31 @@ bool attach_tree(int tree_fd, int target_fd) noexcept
 bool create_private_root(const isolated_admission& admission,
                          mount_setup_failure& failure) noexcept
 {
+  // Realize detached trees while the inherited source descriptors still
+  // belong to this process's current mount namespace. Older kernels reject
+  // copying a path from another mount namespace, and also reject cloning an
+  // already-detached anonymous mount. These child-owned trees cross the
+  // namespace boundary only through move_mount(), which is the supported
+  // detached-mount handoff.
+  owned_fd realized_root_tree(clone_tree(admission.root_source_fd()));
+  if (!realized_root_tree ||
+      !set_tree_access(realized_root_tree.get(),
+                       pkgexec::resource_access::read_only)) {
+    failure = {mount_setup_stage::root_tree, errno};
+    return false;
+  }
+  std::vector<owned_fd> realized_bindings;
+  realized_bindings.reserve(admission.bindings().size());
+  for (const auto& binding : admission.bindings()) {
+    owned_fd realized_tree(clone_tree(binding.source.get()));
+    if (!realized_tree ||
+        !set_tree_access(realized_tree.get(), binding.access)) {
+      failure = {mount_setup_stage::resource_tree, errno};
+      return false;
+    }
+    realized_bindings.push_back(std::move(realized_tree));
+  }
+
   if (::unshare(CLONE_NEWNS) != 0) {
     failure = {mount_setup_stage::mount_namespace, errno};
     return false;
@@ -335,13 +346,7 @@ bool create_private_root(const isolated_admission& admission,
     failure = {mount_setup_stage::root_tree, errno};
     return false;
   }
-  // move_mount() permanently attaches the mount object it receives to this
-  // child's mount namespace. Realization therefore clones the admitted
-  // detached tree and consumes only that child-owned clone; the retained
-  // admission remains detached and immutable in the supervisor.
-  owned_fd realized_root_tree(clone_tree(admission.root_tree_fd()));
-  if (!realized_root_tree ||
-      !attach_tree(realized_root_tree.get(), target.get())) {
+  if (!attach_tree(realized_root_tree.get(), target.get())) {
     failure = {mount_setup_stage::root_tree, errno};
     return false;
   }
@@ -396,7 +401,8 @@ bool create_private_root(const isolated_admission& admission,
     }
   }
 
-  for (const auto& binding : admission.bindings()) {
+  for (std::size_t index = 0; index < admission.bindings().size(); ++index) {
+    const auto& binding = admission.bindings()[index];
     owned_fd destination(open_beneath(attached_root.get(), binding.logical_path));
     if (!destination ||
         (!binding.synthetic_destination &&
@@ -405,8 +411,7 @@ bool create_private_root(const isolated_admission& admission,
                  destination ? ESTALE : errno};
       return false;
     }
-    owned_fd realized_tree(clone_tree(binding.tree.get()));
-    if (!realized_tree || !attach_tree(realized_tree.get(), destination.get())) {
+    if (!attach_tree(realized_bindings[index].get(), destination.get())) {
       failure = {mount_setup_stage::resource_tree, errno};
       return false;
     }
@@ -545,14 +550,14 @@ void owned_fd::reset(int value) noexcept
 }
 
 isolated_admission::isolated_admission(
-    owned_fd root_tree, std::vector<isolated_binding> bindings,
+    owned_fd root_source, std::vector<isolated_binding> bindings,
     std::vector<isolated_namespace> namespaces, std::filesystem::path scratch)
-    : root_tree_(std::move(root_tree)), bindings_(std::move(bindings)),
+    : root_source_(std::move(root_source)), bindings_(std::move(bindings)),
       namespaces_(std::move(namespaces)), scratch_(std::move(scratch))
 {
 }
 isolated_admission::isolated_admission(isolated_admission&& other) noexcept
-    : root_tree_(std::move(other.root_tree_)), bindings_(std::move(other.bindings_)),
+    : root_source_(std::move(other.root_source_)), bindings_(std::move(other.bindings_)),
       namespaces_(std::move(other.namespaces_)), scratch_(std::move(other.scratch_)),
       cleanup_attempted_(other.cleanup_attempted_)
 {
@@ -563,7 +568,7 @@ isolated_admission& isolated_admission::operator=(isolated_admission&& other) no
 {
   if (this != &other) {
     cleanup_best_effort();
-    root_tree_ = std::move(other.root_tree_);
+    root_source_ = std::move(other.root_source_);
     bindings_ = std::move(other.bindings_);
     namespaces_ = std::move(other.namespaces_);
     scratch_ = std::move(other.scratch_);
@@ -574,7 +579,7 @@ isolated_admission& isolated_admission::operator=(isolated_admission&& other) no
   return *this;
 }
 isolated_admission::~isolated_admission() { cleanup_best_effort(); }
-int isolated_admission::root_tree_fd() const noexcept { return root_tree_.get(); }
+int isolated_admission::root_source_fd() const noexcept { return root_source_.get(); }
 const std::vector<isolated_binding>& isolated_admission::bindings() const noexcept
 { return bindings_; }
 const std::vector<isolated_namespace>& isolated_admission::namespaces() const noexcept
@@ -724,8 +729,7 @@ isolated_admission admit_isolated_resources(
       }
       target_identity = identity_of(target.get());
     }
-    auto tree = prepare_tree(source.get(), binding.access());
-    admitted.push_back({std::move(tree), source_identity, target_identity,
+    admitted.push_back({std::move(source), source_identity, target_identity,
                         binding.access(), binding.mount_point().string(), input});
   }
   for (auto& value : namespaces) {
@@ -734,9 +738,7 @@ isolated_admission admit_isolated_resources(
         std::unique(value.children.begin(), value.children.end()),
         value.children.end());
   }
-  auto root_tree = prepare_tree(
-      root.get(), pkgexec::resource_access::read_only);
-  return isolated_admission(std::move(root_tree), std::move(admitted),
+  return isolated_admission(std::move(root), std::move(admitted),
                             std::move(namespaces), make_scratch());
 }
 
@@ -807,15 +809,11 @@ bool probe_isolated_filesystem(mount_setup_failure& failure) noexcept
     const auto source_identity = identity_of(source.get());
     const auto target_identity = identity_of(target.get());
     std::vector<isolated_binding> probe_bindings;
-    auto source_tree = prepare_tree(
-        source.get(), pkgexec::resource_access::read_only);
-    probe_bindings.push_back({std::move(source_tree), source_identity,
+    probe_bindings.push_back({std::move(source), source_identity,
                               target_identity,
                               pkgexec::resource_access::read_only,
                               "/resource"});
-    auto root_tree = prepare_tree(
-        root.get(), pkgexec::resource_access::read_only);
-    admission = isolated_admission(std::move(root_tree),
+    admission = isolated_admission(std::move(root),
                                     std::move(probe_bindings), {},
                                     make_scratch());
   } catch (...) {
@@ -827,9 +825,8 @@ bool probe_isolated_filesystem(mount_setup_failure& failure) noexcept
 
   bool realized = true;
   // One admission must be stable authority, not a one-shot mount payload.
-  // Exercise the same retained detached trees twice so a future direct
-  // move_mount() of admission-owned objects fails this probe even on kernels
-  // that happen to release the consumed object quickly enough for cleanup.
+  // Exercise the same retained source descriptors twice so a future attempt
+  // to retain/consume detached realization mounts fails this probe.
   for (int attempt = 0; attempt < 2; ++attempt) {
     if (!probe_isolated_realization(*admission, failure)) {
       realized = false;
@@ -837,9 +834,8 @@ bool probe_isolated_filesystem(mount_setup_failure& failure) noexcept
     }
   }
   const bool scratch_cleaned = admission->verify_parent_cleanup();
-  // The admission owns detached OPEN_TREE_CLONE mount objects derived from
-  // view and material. Release that provider-owned authority before proving
-  // removal of the source fixture from which it was admitted.
+  // Release the retained exact source descriptors before proving removal of
+  // the source fixture from which they were admitted.
   admission.reset();
   mount_setup_failure fixture_failure{};
   auto remove_fixture_directory = [&](const std::filesystem::path& path,

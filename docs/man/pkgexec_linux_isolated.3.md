@@ -15,11 +15,14 @@ pkgexec_linux_isolated - private Linux filesystem and network execution contract
 **execute()** requires a dedicated root-view directory and exact directory
 materializations for every declared resource.
 
-The backend opens roots and resources without following symlinks and admits
-them as sealed detached mount trees. Each child clones the admitted trees for
-realization, creates a private mount namespace, and attaches only those
-child-owned clones at their exact logical paths. The retained admission remains
-detached. The exact root is read-only and `nosuid`; declared resources receive
+The backend opens roots and resources without following symlinks and retains
+them as exact `O_PATH` admission descriptors. Before entering its private mount
+namespace, each child creates fresh detached mount trees from those descriptors
+and seals the child-owned realization mounts. After namespace creation it
+attaches the mounts at their exact logical paths. Retained admission descriptors
+are never attached or consumed; realization neither copies a source from another
+mount namespace nor requires cloning an already detached anonymous mount.
+The exact root is read-only and `nosuid`; declared resources receive
 `nosuid,nodev` plus read-only or writable attributes. The child then enters the
 root, drops capabilities, and executes the exact interpreter descriptor.
 

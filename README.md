@@ -32,12 +32,16 @@ global cancellation flag, `kill(-pgid)` cancellation fallback, or reuse of an
 unverified numeric PID.
 
 The isolated backend remains descriptor-oriented. Root and resource directories
-are opened with `openat2(2)` and admitted as sealed detached `open_tree(2)`
-mounts. Each child clones those admitted trees for realization and attaches only
-the child-owned clones with `move_mount(2)`; realization never consumes or
-reattaches retained admission authority. It does not borrow missing files from
-the live host root. The supplied root must contain the interpreter and its
-runtime closure.
+are opened with `openat2(2)` and retained as exact `O_PATH` admission
+descriptors. Before entering its private mount namespace, each child creates a
+fresh detached `open_tree(2)` mount from those descriptors and seals the
+realization mount with `mount_setattr(2)`; after namespace creation it attaches
+only that child-owned mount with `move_mount(2)`. Realization never consumes or
+reattaches retained admission authority, never copies a source from another
+mount namespace, and does not require re-cloning an already detached anonymous
+mount. It does not borrow missing files from the live
+host root. The supplied root must contain the interpreter and its runtime
+closure.
 
 Denied networking creates a private network namespace whose only interface is
 administratively down loopback. Loopback-only networking creates the same

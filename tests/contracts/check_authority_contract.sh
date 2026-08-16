@@ -36,18 +36,38 @@ grep -q 'cannot overlap the root view' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource overlap rejection missing'
 grep -q 'move_mount' "$root/src/mount_isolation.cpp" ||
   fail 'descriptor mount attachment missing'
-grep -F 'realized_root_tree(clone_tree(admission.root_tree_fd()))' \
+grep -F 'realized_root_tree(clone_tree(admission.root_source_fd()))' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
-  fail 'root realization consumes retained detached admission'
-grep -F 'realized_tree(clone_tree(binding.tree.get()))' \
+  fail 'root realization does not clone retained exact source authority'
+grep -F 'set_tree_access(realized_root_tree.get(),' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
-  fail 'resource realization consumes retained detached admission'
-! grep -F 'attach_tree(admission.root_tree_fd()' \
+  fail 'root realization mount is not sealed after cloning'
+grep -F 'realized_tree(clone_tree(binding.source.get()))' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'resource realization does not clone retained exact source authority'
+grep -F 'set_tree_access(realized_tree.get(), binding.access)' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'resource realization mount is not sealed after cloning'
+root_clone_line=$(grep -n -F \
+  'realized_root_tree(clone_tree(admission.root_source_fd()))' \
+  "$root/src/mount_isolation.cpp" | sed -n '1s/:.*//p')
+namespace_line=$(grep -n -F '::unshare(CLONE_NEWNS)' \
+  "$root/src/mount_isolation.cpp" | sed -n '1s/:.*//p')
+[ -n "$root_clone_line" ] && [ -n "$namespace_line" ] &&
+  [ "$root_clone_line" -lt "$namespace_line" ] ||
+  fail 'realization clones admitted sources only after leaving their mount namespace'
+! grep -F 'attach_tree(admission.root_source_fd()' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'retained root admission is attached directly'
-! grep -F 'attach_tree(binding.tree.get()' \
+! grep -F 'attach_tree(binding.source.get()' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'retained resource admission is attached directly'
+! grep -F 'clone_tree(admission.root_tree_fd())' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'realization requires cloning an already detached root mount'
+! grep -F 'clone_tree(binding.tree.get())' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'realization requires cloning an already detached resource mount'
 grep -F 'attempt < 2' "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'isolated probe does not fight one-shot admission realization'
 grep -F 'fixture_failure = {stage, errno}' \

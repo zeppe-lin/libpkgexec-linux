@@ -37,7 +37,7 @@ struct inode_identity final {
 };
 
 struct isolated_binding final {
-  owned_fd tree;
+  owned_fd source;
   inode_identity source_identity;
   inode_identity target_identity;
   pkgexec::resource_access access;
@@ -59,7 +59,7 @@ public:
   isolated_admission& operator=(isolated_admission&& other) noexcept;
   ~isolated_admission();
 
-  [[nodiscard]] int root_tree_fd() const noexcept;
+  [[nodiscard]] int root_source_fd() const noexcept;
   [[nodiscard]] const std::vector<isolated_binding>& bindings() const noexcept;
   [[nodiscard]] const std::vector<isolated_namespace>& namespaces() const noexcept;
   [[nodiscard]] const std::filesystem::path& scratch_path() const noexcept;
@@ -69,13 +69,13 @@ private:
       const pkgexec::execution_request&,
       const pkgexec::execution_resources&);
   friend bool probe_isolated_filesystem(struct mount_setup_failure&) noexcept;
-  isolated_admission(owned_fd root_tree,
+  isolated_admission(owned_fd root_source,
                      std::vector<isolated_binding> bindings,
                      std::vector<isolated_namespace> namespaces,
                      std::filesystem::path scratch);
   void cleanup_best_effort() noexcept;
 
-  owned_fd root_tree_;
+  owned_fd root_source_;
   std::vector<isolated_binding> bindings_;
   std::vector<isolated_namespace> namespaces_;
   std::filesystem::path scratch_;
