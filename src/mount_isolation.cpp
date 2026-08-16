@@ -261,12 +261,13 @@ int clone_tree(int source_fd) noexcept
 #endif
 }
 
-bool set_tree_access(int tree_fd, pkgexec::resource_access access) noexcept
+bool seal_tree(int tree_fd, pkgexec::resource_access access) noexcept
 {
 #ifdef __NR_mount_setattr
   mount_attr attributes{};
   attributes.attr_set = MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV;
   attributes.attr_clr = MOUNT_ATTR_NOEXEC;
+  attributes.propagation = MS_PRIVATE;
   if (access == pkgexec::resource_access::read_only) {
     attributes.attr_set |= MOUNT_ATTR_RDONLY;
   } else {
@@ -306,7 +307,7 @@ bool create_private_root(const isolated_admission& admission,
   // detached-mount handoff.
   owned_fd realized_root_tree(clone_tree(admission.root_source_fd()));
   if (!realized_root_tree ||
-      !set_tree_access(realized_root_tree.get(),
+      !seal_tree(realized_root_tree.get(),
                        pkgexec::resource_access::read_only)) {
     failure = {mount_setup_stage::root_tree, errno};
     return false;
@@ -316,7 +317,7 @@ bool create_private_root(const isolated_admission& admission,
   for (const auto& binding : admission.bindings()) {
     owned_fd realized_tree(clone_tree(binding.source.get()));
     if (!realized_tree ||
-        !set_tree_access(realized_tree.get(), binding.access)) {
+        !seal_tree(realized_tree.get(), binding.access)) {
       failure = {mount_setup_stage::resource_tree, errno};
       return false;
     }

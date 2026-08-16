@@ -39,13 +39,13 @@ grep -q 'move_mount' "$root/src/mount_isolation.cpp" ||
 grep -F 'realized_root_tree(clone_tree(admission.root_source_fd()))' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'root realization does not clone retained exact source authority'
-grep -F 'set_tree_access(realized_root_tree.get(),' \
+grep -F 'seal_tree(realized_root_tree.get(),' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'root realization mount is not sealed after cloning'
 grep -F 'realized_tree(clone_tree(binding.source.get()))' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'resource realization does not clone retained exact source authority'
-grep -F 'set_tree_access(realized_tree.get(), binding.access)' \
+grep -F 'seal_tree(realized_tree.get(), binding.access)' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'resource realization mount is not sealed after cloning'
 root_clone_line=$(grep -n -F \
@@ -70,6 +70,10 @@ namespace_line=$(grep -n -F '::unshare(CLONE_NEWNS)' \
   fail 'realization requires cloning an already detached resource mount'
 grep -F 'attempt < 2' "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'isolated probe does not fight one-shot admission realization'
+grep -F 'prepare_shared_probe_source()' "$root/tests/privileged/isolated_capability_test.cpp" >/dev/null ||
+  fail 'isolated capability gate does not fight shared source propagation'
+grep -F 'MS_SHARED' "$root/tests/privileged/isolated_capability_test.cpp" >/dev/null ||
+  fail 'isolated capability gate never creates a shared source mount'
 grep -F 'fixture_failure = {stage, errno}' \
     "$root/src/mount_isolation.cpp" >/dev/null ||
   fail 'isolated probe cleanup destroys the observed errno'
@@ -77,6 +81,8 @@ grep -q 'MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" |
   fail 'root/resource device authority is not sealed nodev'
 grep -q 'attributes.attr_clr = MOUNT_ATTR_NOEXEC' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource execution inherits ambient noexec'
+grep -q 'attributes.propagation = MS_PRIVATE' "$root/src/mount_isolation.cpp" ||
+  fail 'detached realization mounts retain ambient propagation authority'
 grep -q 'MS_NOSUID | MS_NOEXEC' "$root/src/mount_isolation.cpp" ||
   fail 'private device filesystem policy is absent'
 grep -q 'makedev(1, 3)' "$root/src/mount_isolation.cpp" ||

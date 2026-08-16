@@ -18,7 +18,8 @@ materializations for every declared resource.
 The backend opens roots and resources without following symlinks and retains
 them as exact `O_PATH` admission descriptors. Before entering its private mount
 namespace, each child creates fresh detached mount trees from those descriptors
-and seals the child-owned realization mounts. After namespace creation it
+and seals the child-owned realization mounts read-only/writable as requested,
+`nosuid,nodev`, and private for propagation. After namespace creation it
 attaches the mounts at their exact logical paths. Retained admission descriptors
 are never attached or consumed; realization neither copies a source from another
 mount namespace nor requires cloning an already detached anonymous mount.

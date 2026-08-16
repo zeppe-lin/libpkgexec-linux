@@ -70,8 +70,10 @@ group cleanup. A raw `pidfd_open(2)` result is not sufficient coverage.
 
 The isolated integration cases exit 77 independently when the runner cannot
 realize the guarantee family under test. `isolated-capability` consumes the same
-public capability report as callers and specifically refuses to turn an
-internal cleanup `EBUSY` into an environmental skip. The request-level cases
+public capability report as callers. When mount namespaces are available, it
+forces the probe fixture beneath a shared `/tmp` mount so detached realization
+must seal propagation before attachment, and it refuses to turn an internal
+cleanup `EBUSY` into an environmental skip. The request-level cases
 report the exact unsupported request and unavailable or policy-restricted
 observations. The filesystem case separately requires preparation of the exact
 root-device fixture. Meson may suppress skipped output in its compact summary;

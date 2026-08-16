@@ -10,7 +10,7 @@ pkgexec_linux_isolated \- private Linux filesystem and network execution contrac
 \f[B]execute()\f[R] requires a dedicated root\-view directory and exact directory materializations for every declared resource.
 .PP
 The backend opens roots and resources without following symlinks and retains them as exact \f[CR]O_PATH\f[R] admission descriptors.
-Before entering its private mount namespace, each child creates fresh detached mount trees from those descriptors and seals the child\-owned realization mounts.
+Before entering its private mount namespace, each child creates fresh detached mount trees from those descriptors and seals the child\-owned realization mounts read\-only/writable as requested, \f[CR]nosuid,nodev\f[R], and private for propagation.
 After namespace creation it attaches the mounts at their exact logical paths.
 Retained admission descriptors are never attached or consumed; realization neither copies a source from another mount namespace nor requires cloning an already detached anonymous mount.
 The exact root is read\-only and \f[CR]nosuid\f[R]; declared resources receive \f[CR]nosuid,nodev\f[R] plus read\-only or writable attributes.

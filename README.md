@@ -35,11 +35,11 @@ The isolated backend remains descriptor-oriented. Root and resource directories
 are opened with `openat2(2)` and retained as exact `O_PATH` admission
 descriptors. Before entering its private mount namespace, each child creates a
 fresh detached `open_tree(2)` mount from those descriptors and seals the
-realization mount with `mount_setattr(2)`; after namespace creation it attaches
-only that child-owned mount with `move_mount(2)`. Realization never consumes or
-reattaches retained admission authority, never copies a source from another
-mount namespace, and does not require re-cloning an already detached anonymous
-mount. It does not borrow missing files from the live
+realization mount with `mount_setattr(2)`, including private propagation; after
+namespace creation it attaches only that child-owned mount with `move_mount(2)`.
+Realization never consumes or reattaches retained admission authority, never
+copies a source from another mount namespace, and does not require re-cloning an
+already detached anonymous mount. It does not borrow missing files from the live
 host root. The supplied root must contain the interpreter and its runtime
 closure.
 

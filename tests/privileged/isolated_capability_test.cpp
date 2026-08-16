@@ -10,6 +10,9 @@
 #include <stdexcept>
 #include <string>
 
+#include <sched.h>
+#include <sys/mount.h>
+
 namespace {
 
 const pkgexec_linux::capability_observation& observation(
@@ -34,9 +37,36 @@ bool has_errno_diagnostic(
                          suffix) == 0;
 }
 
+bool prepare_shared_probe_source()
+{
+  if (::unshare(CLONE_NEWNS) != 0) {
+    if (errno == EPERM || errno == EACCES) {
+      return false;
+    }
+    throw std::runtime_error(
+        std::string("unshare capability-test mount namespace: ") +
+        std::strerror(errno));
+  }
+  if (::mount(nullptr, "/", nullptr, MS_REC | MS_PRIVATE, nullptr) != 0) {
+    throw std::runtime_error(
+        std::string("privatize capability-test mount namespace: ") +
+        std::strerror(errno));
+  }
+  if (::mount("/tmp", "/tmp", nullptr, MS_BIND, nullptr) != 0) {
+    throw std::runtime_error(
+        std::string("bind capability-test /tmp: ") + std::strerror(errno));
+  }
+  if (::mount(nullptr, "/tmp", nullptr, MS_SHARED, nullptr) != 0) {
+    throw std::runtime_error(
+        std::string("share capability-test /tmp: ") + std::strerror(errno));
+  }
+  return true;
+}
+
 int test()
 {
   using namespace pkgexec_linux;
+  (void)prepare_shared_probe_source();
   const auto report = capability_report::probe_isolated();
   const auto& mount = observation(report, capability_kind::mount_namespace);
   if (mount.state() == capability_state::available) {
