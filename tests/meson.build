@@ -75,6 +75,18 @@ if get_option('tests').enabled()
     suite: 'integration',
   )
 
+  isolated_capability_test = executable(
+    'isolated-capability-test',
+    'privileged/isolated_capability_test.cpp',
+    dependencies: libpkgexec_linux_dep,
+    install: false,
+  )
+  test(
+    'isolated-capability',
+    isolated_capability_test,
+    suite: 'integration-privileged',
+  )
+
   isolated_filesystem_test = executable(
     'isolated-filesystem-test',
     'privileged/isolated_filesystem_test.cpp',

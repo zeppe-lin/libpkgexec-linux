@@ -68,7 +68,7 @@ private:
   friend isolated_admission admit_isolated_resources(
       const pkgexec::execution_request&,
       const pkgexec::execution_resources&);
-  friend bool probe_isolated_filesystem(int&) noexcept;
+  friend bool probe_isolated_filesystem(struct mount_setup_failure&) noexcept;
   isolated_admission(owned_fd root_tree,
                      std::vector<isolated_binding> bindings,
                      std::vector<isolated_namespace> namespaces,
@@ -91,11 +91,15 @@ enum class mount_setup_stage : std::uint32_t {
   input_namespace,
   device_filesystem,
   root_entry,
+  probe_preparation,
+  capability_drop,
+  parent_cleanup,
+  fixture_cleanup,
 };
 
 struct mount_setup_failure final {
-  mount_setup_stage stage;
-  int error;
+  mount_setup_stage stage = mount_setup_stage::probe_preparation;
+  int error = 0;
 };
 
 [[nodiscard]] isolated_admission admit_isolated_resources(
@@ -105,7 +109,8 @@ struct mount_setup_failure final {
     const isolated_admission& admission,
     mount_setup_failure& failure) noexcept;
 [[nodiscard]] bool probe_openat2() noexcept;
-[[nodiscard]] bool probe_isolated_filesystem(int& failure_error) noexcept;
+[[nodiscard]] bool probe_isolated_filesystem(
+    mount_setup_failure& failure) noexcept;
 [[nodiscard]] std::string_view mount_stage_name(mount_setup_stage stage) noexcept;
 
 } // namespace pkgexec_linux::detail

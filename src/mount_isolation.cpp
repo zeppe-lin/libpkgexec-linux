@@ -674,11 +674,11 @@ bool probe_openat2() noexcept
   return true;
 }
 
-bool probe_isolated_filesystem(int& failure_error) noexcept
+bool probe_isolated_filesystem(mount_setup_failure& failure) noexcept
 {
-  failure_error = 0;
+  failure = {};
   if (!probe_openat2()) {
-    failure_error = errno;
+    failure = {mount_setup_stage::probe_preparation, errno};
     return false;
   }
 
@@ -688,7 +688,7 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
               std::strlen(template_value) + 1U);
   char* created = ::mkdtemp(pattern.data());
   if (!created) {
-    failure_error = errno;
+    failure = {mount_setup_stage::probe_preparation, errno};
     return false;
   }
   const std::filesystem::path base(created);
@@ -707,7 +707,7 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
       ::mkdir(target_path.c_str(), 0700) != 0 ||
       ::mkdir(device_path.c_str(), 0700) != 0 ||
       ::mkdir(material.c_str(), 0700) != 0) {
-    failure_error = errno;
+    failure = {mount_setup_stage::probe_preparation, errno};
     cleanup_fixture();
     return false;
   }
@@ -718,7 +718,7 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
     owned_fd source(open_exact_path(material));
     owned_fd target(open_beneath(root.get(), "/resource"));
     if (!root || !source || !target) {
-      failure_error = errno;
+      failure = {mount_setup_stage::probe_preparation, errno};
       cleanup_fixture();
       return false;
     }
@@ -737,90 +737,109 @@ bool probe_isolated_filesystem(int& failure_error) noexcept
                                     std::move(probe_bindings), {},
                                     make_scratch());
   } catch (...) {
-    failure_error = errno == 0 ? EIO : errno;
+    failure = {mount_setup_stage::probe_preparation,
+               errno == 0 ? EIO : errno};
     cleanup_fixture();
     return false;
   }
 
   int report[2] = {-1, -1};
   if (::pipe2(report, O_CLOEXEC) != 0) {
-    failure_error = errno;
+    failure = {mount_setup_stage::probe_preparation, errno};
     (void)admission->verify_parent_cleanup();
+    admission.reset();
     cleanup_fixture();
     return false;
   }
   const pid_t child = ::fork();
   if (child < 0) {
-    failure_error = errno;
+    failure = {mount_setup_stage::probe_preparation, errno};
     ::close(report[0]);
     ::close(report[1]);
     (void)admission->verify_parent_cleanup();
+    admission.reset();
     cleanup_fixture();
     return false;
   }
   if (child == 0) {
     ::close(report[0]);
-    auto send_failure = [&](int value) noexcept {
-      const int saved = value == 0 ? EIO : value;
-      (void)::write(report[1], &saved, sizeof(saved));
-      _exit(probe_exit_code(saved));
+    auto send_failure = [&](mount_setup_failure value) noexcept {
+      if (value.error == 0) {
+        value.error = EIO;
+      }
+      (void)::write(report[1], &value, sizeof(value));
+      _exit(probe_exit_code(value.error));
     };
-    mount_setup_failure failure{};
-    if (!setup_isolated_filesystem(*admission, failure)) {
-      send_failure(failure.error);
+    mount_setup_failure child_failure{};
+    if (!setup_isolated_filesystem(*admission, child_failure)) {
+      send_failure(child_failure);
     }
     struct stat null_info {};
     if (::stat("/dev/null", &null_info) != 0 || !S_ISCHR(null_info.st_mode)) {
-      send_failure(errno == 0 ? ENODEV : errno);
+      send_failure({mount_setup_stage::device_filesystem,
+                    errno == 0 ? ENODEV : errno});
     }
     const int null_fd = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
     if (null_fd < 0) {
-      send_failure(errno);
+      send_failure({mount_setup_stage::device_filesystem, errno});
     }
     const unsigned char byte = 0;
     if (::write(null_fd, &byte, 1) != 1 || ::close(null_fd) != 0) {
-      send_failure(errno == 0 ? EIO : errno);
+      send_failure({mount_setup_stage::device_filesystem,
+                    errno == 0 ? EIO : errno});
     }
     if (!drop_process_capabilities()) {
-      send_failure(errno);
+      send_failure({mount_setup_stage::capability_drop, errno});
     }
     ::close(report[1]);
     _exit(0);
   }
 
   ::close(report[1]);
-  int reported = 0;
+  mount_setup_failure reported{};
   const ssize_t report_size = ::read(report[0], &reported, sizeof(reported));
   ::close(report[0]);
   int status = 0;
   while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
   }
   const bool scratch_cleaned = admission->verify_parent_cleanup();
+  // The admission owns detached OPEN_TREE_CLONE mount objects derived from
+  // view and material. Release that provider-owned authority before proving
+  // removal of the source fixture from which it was admitted.
+  admission.reset();
   bool fixture_cleaned = true;
   fixture_cleaned = (::rmdir(material.c_str()) == 0) && fixture_cleaned;
   fixture_cleaned = (::rmdir(target_path.c_str()) == 0) && fixture_cleaned;
   fixture_cleaned = (::rmdir(device_path.c_str()) == 0) && fixture_cleaned;
   fixture_cleaned = (::rmdir(view.c_str()) == 0) && fixture_cleaned;
   fixture_cleaned = (::rmdir(base.c_str()) == 0) && fixture_cleaned;
-  if (!scratch_cleaned || !fixture_cleaned) {
-    failure_error = EBUSY;
+  if (!scratch_cleaned) {
+    failure = {mount_setup_stage::parent_cleanup, EBUSY};
+    return false;
+  }
+  if (!fixture_cleaned) {
+    failure = {mount_setup_stage::fixture_cleanup, EBUSY};
     return false;
   }
   if (!WIFEXITED(status)) {
-    failure_error = EIO;
+    failure = {mount_setup_stage::probe_preparation, EIO};
     return false;
   }
   if (WEXITSTATUS(status) == 0) {
     return true;
   }
-  failure_error = report_size == static_cast<ssize_t>(sizeof(reported))
-      ? reported : (WEXITSTATUS(status) == 2 ? EPERM : EIO);
+  failure = report_size == static_cast<ssize_t>(sizeof(reported))
+      ? reported
+      : mount_setup_failure{
+            mount_setup_stage::probe_preparation,
+            WEXITSTATUS(status) == 2 ? EPERM : EIO};
   return false;
 }
 
 std::string_view mount_stage_name(mount_setup_stage stage) noexcept
 {
   switch (stage) {
+    case mount_setup_stage::probe_preparation: return "isolated probe preparation";
     case mount_setup_stage::mount_namespace: return "mount namespace";
     case mount_setup_stage::private_propagation: return "private mount propagation";
     case mount_setup_stage::scratch_mount: return "private scratch mount";
@@ -829,6 +848,9 @@ std::string_view mount_stage_name(mount_setup_stage stage) noexcept
     case mount_setup_stage::input_namespace: return "private input namespace";
     case mount_setup_stage::device_filesystem: return "private device filesystem";
     case mount_setup_stage::root_entry: return "root-view entry";
+    case mount_setup_stage::capability_drop: return "capability drop";
+    case mount_setup_stage::parent_cleanup: return "parent isolation scratch cleanup";
+    case mount_setup_stage::fixture_cleanup: return "isolated probe fixture cleanup";
   }
   return "mount isolation";
 }

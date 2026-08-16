@@ -7,8 +7,10 @@ The suite is separated by authority and mechanism:
 - `unit` checks provider-owned value vocabulary with no execution;
 - `integration` checks host execution, capability probing, interpreter admission,
   exact limits, and cancellation against real `libpkgexec` requests/results;
-- `integration-privileged` checks isolated filesystem, network, limit,
-  cancellation, and composed realization. Environmental inability exits 77;
+- `integration-privileged` checks isolated capability realization, filesystem,
+  network, limit, cancellation, and composed realization. Environmental
+  inability exits 77, while the direct capability gate rejects known
+  provider-internal cleanup failure;
 - `header` compiles every installed public header independently;
 - `contract` checks source/release/pkg-config/test-topology invariants.
 
@@ -67,11 +69,13 @@ probe cannot establish exact leader observation, pidfd signaling, and process
 group cleanup. A raw `pidfd_open(2)` result is not sufficient coverage.
 
 The isolated integration cases exit 77 independently when the runner cannot
-realize the guarantee family under test. Each skipped case reports the exact
-unsupported request and unavailable or policy-restricted observations. The
-filesystem case separately requires preparation of the exact-root device fixture.
-Meson may suppress skipped output in its compact summary; use the
-`integration-privileged` suite with `-v` when the reason matters.
+realize the guarantee family under test. `isolated-capability` consumes the same
+public capability report as callers and specifically refuses to turn an
+internal cleanup `EBUSY` into an environmental skip. The request-level cases
+report the exact unsupported request and unavailable or policy-restricted
+observations. The filesystem case separately requires preparation of the exact
+root-device fixture. Meson may suppress skipped output in its compact summary;
+use the `integration-privileged` suite with `-v` when the reason matters.
 
 A skip is not release proof. A delegated or privileged run must PASS every
 `integration-privileged` case. The final `isolated-composition` request requires

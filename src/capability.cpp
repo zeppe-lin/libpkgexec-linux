@@ -358,11 +358,11 @@ capability_report capability_report::probe_isolated()
       detail::probe_pidfd_cancellation();
   const auto resource_limits = probe_resource_limits();
   const bool capability_drop = detail::probe_capability_drop();
-  int mount_error = 0;
-  const bool filesystem = detail::probe_isolated_filesystem(mount_error);
+  detail::mount_setup_failure mount_failure{};
+  const bool filesystem = detail::probe_isolated_filesystem(mount_failure);
   const auto mount_state = filesystem
       ? capability_state::available
-      : (mount_error == EPERM || mount_error == EACCES
+      : (mount_failure.error == EPERM || mount_failure.error == EACCES
              ? capability_state::policy_restricted
              : capability_state::unavailable);
   detail::network_setup_failure denied_failure{};
@@ -410,7 +410,8 @@ capability_report capability_report::probe_isolated()
 
   const std::string mount_diagnostic = filesystem
       ? "private descriptor-oriented root and resource mounts are available"
-      : detail::errno_message("isolated mount probe", mount_error);
+      : detail::errno_message(detail::mount_stage_name(mount_failure.stage),
+                              mount_failure.error);
   const auto network_diagnostic = [](bool available,
                                      const detail::network_setup_failure& failure) {
     return available
