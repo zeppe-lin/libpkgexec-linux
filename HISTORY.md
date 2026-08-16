@@ -1,5 +1,24 @@
 # libpkgexec-linux history
 
+## libpkgexec-linux 0.7.1
+
+Isolation realization and capability-qualification maintenance release.
+
+- Keep admitted root and execution-resource authority as exact retained directory
+  descriptors and create/seal child-owned detached mounts before entering the
+  private mount namespace. Realization no longer consumes retained admission or
+  requires detached-from-detached cloning, preserving repeatable execution across
+  the older and newer Linux mount APIs.
+- Seal every realized detached root/resource tree with private propagation before
+  attachment. This closes propagation leakage from shared host mounts exposed by
+  newer anonymous-mount propagation semantics.
+- Make the isolated-filesystem probe exercise one retained admission twice, retain
+  the exact failing setup/cleanup stage and errno, and add a privileged public
+  capability gate plus shared-source propagation stress so provider defects cannot
+  hide behind a long bootstrap campaign.
+- Keep API generation 2, SONAME 2, capability vocabulary, and the public
+  `libpkgexec` execution contract unchanged.
+
 ## libpkgexec-linux 0.7.0
 
 Checked-package role qualification release.

@@ -1,4 +1,4 @@
-% PKGEXEC_LINUX_BACKEND(3) libpkgexec-linux | Version 0.7.0
+% PKGEXEC_LINUX_BACKEND(3) libpkgexec-linux | Version 0.7.1
 
 
 # NAME
