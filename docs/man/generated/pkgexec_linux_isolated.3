@@ -9,7 +9,11 @@ pkgexec_linux_isolated \- private Linux filesystem and network execution contrac
 \f[B]isolated_backend::make()\f[R] accepts exact \f[B]interpreter_binding\f[R] values.
 \f[B]execute()\f[R] requires a dedicated root\-view directory and exact directory materializations for every declared resource.
 .PP
-The backend opens roots and resources without following symlinks, clones mount trees, makes the exact root read\-only and \f[CR]nosuid\f[R], applies \f[CR]nosuid,nodev\f[R] plus read\-only or writable attributes to declared resource trees, creates a private mount namespace, attaches resources at their exact logical paths, enters the root, drops capabilities, and executes the exact interpreter descriptor.
+The backend opens roots and resources without following symlinks and admits them as sealed detached mount trees.
+Each child clones the admitted trees for realization, creates a private mount namespace, and attaches only those child\-owned clones at their exact logical paths.
+The retained admission remains detached.
+The exact root is read\-only and \f[CR]nosuid\f[R]; declared resources receive \f[CR]nosuid,nodev\f[R] plus read\-only or writable attributes.
+The child then enters the root, drops capabilities, and executes the exact interpreter descriptor.
 .PP
 The root tree is read\-only.
 Source and package\-input resources must be read\-only.

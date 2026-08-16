@@ -331,7 +331,17 @@ bool create_private_root(const isolated_admission& admission,
     return false;
   }
   owned_fd target(open_exact_path(root_path));
-  if (!target || !attach_tree(admission.root_tree_fd(), target.get())) {
+  if (!target) {
+    failure = {mount_setup_stage::root_tree, errno};
+    return false;
+  }
+  // move_mount() permanently attaches the mount object it receives to this
+  // child's mount namespace. Realization therefore clones the admitted
+  // detached tree and consumes only that child-owned clone; the retained
+  // admission remains detached and immutable in the supervisor.
+  owned_fd realized_root_tree(clone_tree(admission.root_tree_fd()));
+  if (!realized_root_tree ||
+      !attach_tree(realized_root_tree.get(), target.get())) {
     failure = {mount_setup_stage::root_tree, errno};
     return false;
   }
@@ -395,7 +405,8 @@ bool create_private_root(const isolated_admission& admission,
                  destination ? ESTALE : errno};
       return false;
     }
-    if (!attach_tree(binding.tree.get(), destination.get())) {
+    owned_fd realized_tree(clone_tree(binding.tree.get()));
+    if (!realized_tree || !attach_tree(realized_tree.get(), destination.get())) {
       failure = {mount_setup_stage::resource_tree, errno};
       return false;
     }
@@ -432,6 +443,77 @@ bool create_private_root(const isolated_admission& admission,
 int probe_exit_code(int value) noexcept
 {
   return value == EPERM || value == EACCES ? 2 : 1;
+}
+
+bool probe_isolated_realization(const isolated_admission& admission,
+                                mount_setup_failure& failure) noexcept
+{
+  int report[2] = {-1, -1};
+  if (::pipe2(report, O_CLOEXEC) != 0) {
+    failure = {mount_setup_stage::probe_preparation, errno};
+    return false;
+  }
+  const pid_t child = ::fork();
+  if (child < 0) {
+    failure = {mount_setup_stage::probe_preparation, errno};
+    ::close(report[0]);
+    ::close(report[1]);
+    return false;
+  }
+  if (child == 0) {
+    ::close(report[0]);
+    auto send_failure = [&](mount_setup_failure value) noexcept {
+      if (value.error == 0) {
+        value.error = EIO;
+      }
+      (void)::write(report[1], &value, sizeof(value));
+      _exit(probe_exit_code(value.error));
+    };
+    mount_setup_failure child_failure{};
+    if (!setup_isolated_filesystem(admission, child_failure)) {
+      send_failure(child_failure);
+    }
+    struct stat null_info {};
+    if (::stat("/dev/null", &null_info) != 0 || !S_ISCHR(null_info.st_mode)) {
+      send_failure({mount_setup_stage::device_filesystem,
+                    errno == 0 ? ENODEV : errno});
+    }
+    const int null_fd = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
+    if (null_fd < 0) {
+      send_failure({mount_setup_stage::device_filesystem, errno});
+    }
+    const unsigned char byte = 0;
+    if (::write(null_fd, &byte, 1) != 1 || ::close(null_fd) != 0) {
+      send_failure({mount_setup_stage::device_filesystem,
+                    errno == 0 ? EIO : errno});
+    }
+    if (!drop_process_capabilities()) {
+      send_failure({mount_setup_stage::capability_drop, errno});
+    }
+    ::close(report[1]);
+    _exit(0);
+  }
+
+  ::close(report[1]);
+  mount_setup_failure reported{};
+  const ssize_t report_size = ::read(report[0], &reported, sizeof(reported));
+  ::close(report[0]);
+  int status = 0;
+  while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
+  }
+  if (!WIFEXITED(status)) {
+    failure = {mount_setup_stage::probe_preparation, EIO};
+    return false;
+  }
+  if (WEXITSTATUS(status) == 0) {
+    return true;
+  }
+  failure = report_size == static_cast<ssize_t>(sizeof(reported))
+      ? reported
+      : mount_setup_failure{
+            mount_setup_stage::probe_preparation,
+            WEXITSTATUS(status) == 2 ? EPERM : EIO};
+  return false;
 }
 
 } // namespace
@@ -743,97 +825,53 @@ bool probe_isolated_filesystem(mount_setup_failure& failure) noexcept
     return false;
   }
 
-  int report[2] = {-1, -1};
-  if (::pipe2(report, O_CLOEXEC) != 0) {
-    failure = {mount_setup_stage::probe_preparation, errno};
-    (void)admission->verify_parent_cleanup();
-    admission.reset();
-    cleanup_fixture();
-    return false;
-  }
-  const pid_t child = ::fork();
-  if (child < 0) {
-    failure = {mount_setup_stage::probe_preparation, errno};
-    ::close(report[0]);
-    ::close(report[1]);
-    (void)admission->verify_parent_cleanup();
-    admission.reset();
-    cleanup_fixture();
-    return false;
-  }
-  if (child == 0) {
-    ::close(report[0]);
-    auto send_failure = [&](mount_setup_failure value) noexcept {
-      if (value.error == 0) {
-        value.error = EIO;
-      }
-      (void)::write(report[1], &value, sizeof(value));
-      _exit(probe_exit_code(value.error));
-    };
-    mount_setup_failure child_failure{};
-    if (!setup_isolated_filesystem(*admission, child_failure)) {
-      send_failure(child_failure);
+  bool realized = true;
+  // One admission must be stable authority, not a one-shot mount payload.
+  // Exercise the same retained detached trees twice so a future direct
+  // move_mount() of admission-owned objects fails this probe even on kernels
+  // that happen to release the consumed object quickly enough for cleanup.
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (!probe_isolated_realization(*admission, failure)) {
+      realized = false;
+      break;
     }
-    struct stat null_info {};
-    if (::stat("/dev/null", &null_info) != 0 || !S_ISCHR(null_info.st_mode)) {
-      send_failure({mount_setup_stage::device_filesystem,
-                    errno == 0 ? ENODEV : errno});
-    }
-    const int null_fd = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
-    if (null_fd < 0) {
-      send_failure({mount_setup_stage::device_filesystem, errno});
-    }
-    const unsigned char byte = 0;
-    if (::write(null_fd, &byte, 1) != 1 || ::close(null_fd) != 0) {
-      send_failure({mount_setup_stage::device_filesystem,
-                    errno == 0 ? EIO : errno});
-    }
-    if (!drop_process_capabilities()) {
-      send_failure({mount_setup_stage::capability_drop, errno});
-    }
-    ::close(report[1]);
-    _exit(0);
-  }
-
-  ::close(report[1]);
-  mount_setup_failure reported{};
-  const ssize_t report_size = ::read(report[0], &reported, sizeof(reported));
-  ::close(report[0]);
-  int status = 0;
-  while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
   }
   const bool scratch_cleaned = admission->verify_parent_cleanup();
   // The admission owns detached OPEN_TREE_CLONE mount objects derived from
   // view and material. Release that provider-owned authority before proving
   // removal of the source fixture from which it was admitted.
   admission.reset();
+  mount_setup_failure fixture_failure{};
+  auto remove_fixture_directory = [&](const std::filesystem::path& path,
+                                      mount_setup_stage stage) noexcept {
+    if (::rmdir(path.c_str()) == 0 || errno == ENOENT) {
+      return true;
+    }
+    if (fixture_failure.error == 0) {
+      fixture_failure = {stage, errno};
+    }
+    return false;
+  };
   bool fixture_cleaned = true;
-  fixture_cleaned = (::rmdir(material.c_str()) == 0) && fixture_cleaned;
-  fixture_cleaned = (::rmdir(target_path.c_str()) == 0) && fixture_cleaned;
-  fixture_cleaned = (::rmdir(device_path.c_str()) == 0) && fixture_cleaned;
-  fixture_cleaned = (::rmdir(view.c_str()) == 0) && fixture_cleaned;
-  fixture_cleaned = (::rmdir(base.c_str()) == 0) && fixture_cleaned;
+  fixture_cleaned = remove_fixture_directory(
+      material, mount_setup_stage::fixture_material_cleanup) && fixture_cleaned;
+  fixture_cleaned = remove_fixture_directory(
+      target_path, mount_setup_stage::fixture_resource_cleanup) && fixture_cleaned;
+  fixture_cleaned = remove_fixture_directory(
+      device_path, mount_setup_stage::fixture_device_cleanup) && fixture_cleaned;
+  fixture_cleaned = remove_fixture_directory(
+      view, mount_setup_stage::fixture_view_cleanup) && fixture_cleaned;
+  fixture_cleaned = remove_fixture_directory(
+      base, mount_setup_stage::fixture_root_cleanup) && fixture_cleaned;
   if (!scratch_cleaned) {
     failure = {mount_setup_stage::parent_cleanup, EBUSY};
     return false;
   }
   if (!fixture_cleaned) {
-    failure = {mount_setup_stage::fixture_cleanup, EBUSY};
+    failure = fixture_failure;
     return false;
   }
-  if (!WIFEXITED(status)) {
-    failure = {mount_setup_stage::probe_preparation, EIO};
-    return false;
-  }
-  if (WEXITSTATUS(status) == 0) {
-    return true;
-  }
-  failure = report_size == static_cast<ssize_t>(sizeof(reported))
-      ? reported
-      : mount_setup_failure{
-            mount_setup_stage::probe_preparation,
-            WEXITSTATUS(status) == 2 ? EPERM : EIO};
-  return false;
+  return realized;
 }
 
 std::string_view mount_stage_name(mount_setup_stage stage) noexcept
@@ -851,6 +889,16 @@ std::string_view mount_stage_name(mount_setup_stage stage) noexcept
     case mount_setup_stage::capability_drop: return "capability drop";
     case mount_setup_stage::parent_cleanup: return "parent isolation scratch cleanup";
     case mount_setup_stage::fixture_cleanup: return "isolated probe fixture cleanup";
+    case mount_setup_stage::fixture_material_cleanup:
+      return "isolated probe material cleanup";
+    case mount_setup_stage::fixture_resource_cleanup:
+      return "isolated probe resource-target cleanup";
+    case mount_setup_stage::fixture_device_cleanup:
+      return "isolated probe device-target cleanup";
+    case mount_setup_stage::fixture_view_cleanup:
+      return "isolated probe root-view cleanup";
+    case mount_setup_stage::fixture_root_cleanup:
+      return "isolated probe fixture-root cleanup";
   }
   return "mount isolation";
 }

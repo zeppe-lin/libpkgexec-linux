@@ -95,6 +95,11 @@ enum class mount_setup_stage : std::uint32_t {
   capability_drop,
   parent_cleanup,
   fixture_cleanup,
+  fixture_material_cleanup,
+  fixture_resource_cleanup,
+  fixture_device_cleanup,
+  fixture_view_cleanup,
+  fixture_root_cleanup,
 };
 
 struct mount_setup_failure final {

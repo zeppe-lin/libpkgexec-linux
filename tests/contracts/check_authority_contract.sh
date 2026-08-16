@@ -36,6 +36,23 @@ grep -q 'cannot overlap the root view' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource overlap rejection missing'
 grep -q 'move_mount' "$root/src/mount_isolation.cpp" ||
   fail 'descriptor mount attachment missing'
+grep -F 'realized_root_tree(clone_tree(admission.root_tree_fd()))' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'root realization consumes retained detached admission'
+grep -F 'realized_tree(clone_tree(binding.tree.get()))' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'resource realization consumes retained detached admission'
+! grep -F 'attach_tree(admission.root_tree_fd()' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'retained root admission is attached directly'
+! grep -F 'attach_tree(binding.tree.get()' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'retained resource admission is attached directly'
+grep -F 'attempt < 2' "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'isolated probe does not fight one-shot admission realization'
+grep -F 'fixture_failure = {stage, errno}' \
+    "$root/src/mount_isolation.cpp" >/dev/null ||
+  fail 'isolated probe cleanup destroys the observed errno'
 grep -q 'MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV' "$root/src/mount_isolation.cpp" ||
   fail 'root/resource device authority is not sealed nodev'
 grep -q 'attributes.attr_clr = MOUNT_ATTR_NOEXEC' "$root/src/mount_isolation.cpp" ||
